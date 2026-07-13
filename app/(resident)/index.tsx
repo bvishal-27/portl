@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image } from 'react-native';
 import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../../lib/supabase';
@@ -11,7 +11,7 @@ type VisitorRequest = {
   status: string;
   pre_approved: boolean;
   created_at: string;
-  visitors: { name: string; phone: string; visitor_type: string } | null;
+  visitors: { name: string; phone: string; visitor_type: string; photo_url: string | null } | null;
 };
 
 type Notice = { id: string; title: string; body: string; created_at: string };
@@ -55,7 +55,7 @@ export default function ResidentHome() {
   const fetchRequests = async (currentFlatId: string) => {
     const { data, error } = await supabase
       .from('visitor_requests')
-      .select('id, status, pre_approved, created_at, visitors(name, phone, visitor_type)')
+      .select('id, status, pre_approved, created_at, visitors(name, phone, visitor_type, photo_url)')
       .eq('flat_id', currentFlatId)
       .order('created_at', { ascending: false });
     if (!error && data) setRequests(data as any);
@@ -316,8 +316,19 @@ export default function ResidentHome() {
             renderItem={({ item }) => (
               <Card style={styles.card}>
                 <Card.Content>
-                  <Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                  <Text style={styles.visitorType}>{item.visitors?.visitor_type}</Text>
+                  <View style={styles.rowWithImage}>
+                    {item.visitors?.photo_url ? (
+                      <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                    ) : (
+                      <View style={styles.thumbPlaceholder}>
+                        <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.visitorName}>{item.visitors?.name}</Text>
+                      <Text style={styles.visitorType}>{item.visitors?.visitor_type}</Text>
+                    </View>
+                  </View>
                 </Card.Content>
                 <Card.Actions>
                   <Button onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
@@ -522,6 +533,7 @@ const styles = StyleSheet.create({
   visitorType: { color: '#666', textTransform: 'capitalize' },
   historyRow: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
+  rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   guestInput: { flex: 1 },
   guestBtn: { justifyContent: 'center' },
   noticeBody: { color: '#444', marginTop: 4 },
@@ -532,4 +544,7 @@ const styles = StyleSheet.create({
   input: { marginBottom: 12 },
   slotWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   slotChip: { marginBottom: 4 },
+  thumb: { width: 56, height: 56, borderRadius: 28 },
+  thumbPlaceholder: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
+  thumbInitial: { color: 'white', fontSize: 20, fontWeight: '700' },
 });
