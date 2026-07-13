@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Alert, ScrollView } from 'react-native';
-import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
+import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
@@ -18,6 +18,8 @@ type PollOption = { id: string; option_text: string };
 type Poll = { id: string; question: string; poll_options: PollOption[] };
 type Vote = { poll_id: string; option_id: string; voter_id: string };
 type Ticket = { id: string; category: string; description: string; status: string; created_at: string };
+type Amenity = { id: string; name: string; capacity: number; slots: string[] };
+type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 
 export default function ResidentHome() {
   const [tab, setTab] = useState('visitors');
@@ -30,6 +32,11 @@ export default function ResidentHome() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketCategory, setTicketCategory] = useState('general');
   const [ticketDescription, setTicketDescription] = useState('');
+  const [amenities, setAmenities] = useState<Amenity[]>([]);
+  const [myBookings, setMyBookings] = useState<Booking[]>([]);
+  const [selectedAmenity, setSelectedAmenity] = useState<Amenity | null>(null);
+  const [bookingDate, setBookingDate] = useState('');
+const [showDatePicker, setShowDatePicker] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -68,6 +75,16 @@ export default function ResidentHome() {
     if (data) setTickets(data);
   };
 
+  const fetchAmenities = async () => {
+    const { data } = await supabase.from('amenities').select('*').order('created_at', { ascending: false });
+    if (data) setAmenities(data);
+  };
+
+  const fetchMyBookings = async () => {
+    const { data } = await supabase.from('bookings').select('*').eq('resident_id', userId).order('booking_date', { ascending: true });
+    if (data) setMyBookings(data);
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: profile } = await supabase.from('profiles').select('flat_id').eq('id', userId).single();
@@ -78,6 +95,8 @@ export default function ResidentHome() {
       fetchPolls();
       fetchVotes();
       fetchTickets();
+      fetchAmenities();
+      fetchMyBookings();
 
       const visitorChannel = supabase
         .channel(`visitor_requests_resident_${userId}`)
@@ -104,12 +123,24 @@ export default function ResidentHome() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `resident_id=eq.${userId}` }, () => fetchTickets())
         .subscribe();
 
+      const amenityChannel = supabase
+        .channel(`amenities_resident_${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'amenities' }, () => fetchAmenities())
+        .subscribe();
+
+      const bookingChannel = supabase
+        .channel(`bookings_resident_${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings())
+        .subscribe();
+
       return () => {
         supabase.removeChannel(visitorChannel);
         supabase.removeChannel(noticeChannel);
         supabase.removeChannel(pollChannel);
         supabase.removeChannel(voteChannel);
         supabase.removeChannel(ticketChannel);
+        supabase.removeChannel(amenityChannel);
+        supabase.removeChannel(bookingChannel);
       };
     };
     init();
@@ -168,12 +199,50 @@ export default function ResidentHome() {
     Alert.alert('Ticket raised', 'The admin has been notified');
   };
 
+  const handleBookSlot = async (amenity: Amenity, slot: string) => {
+    if (!bookingDate) {
+      Alert.alert('Pick a date', 'Enter a date first (format: YYYY-MM-DD)');
+      return;
+    }
+    const { error } = await supabase.from('bookings').insert({
+      amenity_id: amenity.id,
+      resident_id: userId,
+      booking_date: bookingDate,
+      slot,
+    });
+    if (error) {
+      if (error.code === '23505') {
+        Alert.alert('Already booked', 'This slot is taken for that date. Pick another.');
+      } else {
+        Alert.alert('Error', error.message);
+      }
+      return;
+    }
+    Alert.alert('Booked!', `${amenity.name} — ${slot} on ${bookingDate}`);
+  };
+  const onDateChange = (event: any, selectedDate?: Date) => {
+  setShowDatePicker(Platform.OS === 'ios');
+  if (selectedDate) {
+    const formatted = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    setBookingDate(formatted);
+  }
+};
+
+  const cancelMyBooking = async (bookingId: string) => {
+  const { error } = await supabase.from('bookings').delete().eq('id', bookingId);
+  if (error) {
+    Alert.alert('Error', error.message);
+    return;
+  }
+  fetchMyBookings();
+};
+
   const hasVoted = (pollId: string) => votes.some((v) => v.poll_id === pollId && v.voter_id === userId);
   const voteCount = (optionId: string) => votes.filter((v) => v.option_id === optionId).length;
+  const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
 
   const pendingRequests = requests.filter((r) => r.status === 'pending');
   const pastRequests = requests.filter((r) => r.status !== 'pending');
-
   const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
 
   return (
@@ -189,6 +258,7 @@ export default function ResidentHome() {
           { value: 'notices', label: 'Notices' },
           { value: 'polls', label: 'Polls' },
           { value: 'helpdesk', label: 'Helpdesk' },
+          { value: 'amenities', label: 'Amenities' },
         ]}
       />
 
@@ -199,7 +269,6 @@ export default function ResidentHome() {
             <TextInput label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.guestInput} />
             <Button mode="contained" onPress={handlePreApprove} style={styles.guestBtn}>Add</Button>
           </View>
-
           <Text style={styles.section}>Pending Approvals</Text>
           {pendingRequests.length === 0 && <Text style={styles.empty}>No pending requests</Text>}
           <FlatList
@@ -219,7 +288,6 @@ export default function ResidentHome() {
               </Card>
             )}
           />
-
           <Text style={styles.section}>History</Text>
           {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
           <FlatList
@@ -292,16 +360,8 @@ export default function ResidentHome() {
               { value: 'security', label: 'Security' },
             ]}
           />
-          <TextInput
-            label="Describe the issue"
-            value={ticketDescription}
-            onChangeText={setTicketDescription}
-            multiline
-            numberOfLines={3}
-            style={styles.input}
-          />
+          <TextInput label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} />
           <Button mode="contained" onPress={handleRaiseTicket} style={styles.input}>Submit Ticket</Button>
-
           <Text style={styles.section}>My Tickets</Text>
           {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
           <FlatList
@@ -320,6 +380,59 @@ export default function ResidentHome() {
                   <Text style={styles.noticeBody}>{item.description}</Text>
                   <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
                 </Card.Content>
+              </Card>
+            )}
+          />
+        </>
+      )}
+
+      {tab === 'amenities' && (
+        <>
+          <Text style={styles.section}>Book an Amenity</Text>
+          <Button mode="outlined" onPress={() => setShowDatePicker(true)} style={styles.input}>
+  {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
+</Button>
+{showDatePicker && (
+  <DateTimePicker
+    value={bookingDate ? new Date(bookingDate) : new Date()}
+    mode="date"
+    display="default"
+    minimumDate={new Date()}
+    onChange={onDateChange}
+  />
+)}
+          {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
+          {amenities.map((amenity) => (
+            <Card key={amenity.id} style={styles.card}>
+              <Card.Content>
+                <Text style={styles.visitorName}>{amenity.name}</Text>
+                <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
+                <View style={styles.slotWrap}>
+                  {amenity.slots.map((slot) => (
+                    <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip}>
+                      {slot}
+                    </Chip>
+                  ))}
+                </View>
+              </Card.Content>
+            </Card>
+          ))}
+
+          <Text style={styles.section}>My Bookings</Text>
+          {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
+          <FlatList
+            data={myBookings}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <Card style={styles.card}>
+                <Card.Content>
+                  <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
+                  <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
+                </Card.Content>
+                <Card.Actions>
+                  <Button compact onPress={() => cancelMyBooking(item.id)}>Cancel</Button>
+                </Card.Actions>
               </Card>
             )}
           />
@@ -350,4 +463,6 @@ const styles = StyleSheet.create({
   pollOptionText: { flex: 1 },
   votedLabel: { color: '#2e7d32', marginTop: 8, fontWeight: '600' },
   input: { marginBottom: 12 },
+  slotWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  slotChip: { marginBottom: 4 },
 });

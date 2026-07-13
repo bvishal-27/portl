@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, Alert } from 'react-native';
 import { Button, Card, Chip, TextInput, SegmentedButtons } from 'react-native-paper';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -20,14 +20,18 @@ type Ticket = {
   description: string;
   status: string;
   created_at: string;
-  resident_id: string;
 };
+
+type Amenity = { id: string; name: string; capacity: number; slots: string[] };
+type Booking = { id: string; amenity_id: string; booking_date: string; slot: string; resident_id: string };
 
 export default function AdminHome() {
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [tab, setTab] = useState('visitors');
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [amenities, setAmenities] = useState<Amenity[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -36,6 +40,8 @@ export default function AdminHome() {
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOption1, setPollOption1] = useState('');
   const [pollOption2, setPollOption2] = useState('');
+  const [amenityName, setAmenityName] = useState('');
+  const [amenityCapacity, setAmenityCapacity] = useState('1');
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -57,9 +63,21 @@ export default function AdminHome() {
     if (data) setTickets(data);
   };
 
+  const fetchAmenities = async () => {
+    const { data } = await supabase.from('amenities').select('*').order('created_at', { ascending: false });
+    if (data) setAmenities(data);
+  };
+
+  const fetchBookings = async () => {
+    const { data } = await supabase.from('bookings').select('*').order('booking_date', { ascending: true });
+    if (data) setBookings(data);
+  };
+
   useEffect(() => {
     fetchRequests();
     fetchTickets();
+    fetchAmenities();
+    fetchBookings();
 
     const channel = supabase
       .channel('visitor_requests_admin')
@@ -71,9 +89,21 @@ export default function AdminHome() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => fetchTickets())
       .subscribe();
 
+    const bookingChannel = supabase
+      .channel('bookings_admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchBookings())
+      .subscribe();
+
+    const amenityChannel = supabase
+      .channel('amenities_admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'amenities' }, () => fetchAmenities())
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(ticketChannel);
+      supabase.removeChannel(bookingChannel);
+      supabase.removeChannel(amenityChannel);
     };
   }, []);
 
@@ -104,12 +134,35 @@ export default function AdminHome() {
     if (error) console.log(error.message);
   };
 
+  const handleCreateAmenity = async () => {
+  if (!amenityName) {
+    Alert.alert('Missing info', 'Enter an amenity name');
+    return;
+  }
+  const { error } = await supabase.from('amenities').insert({
+    name: amenityName,
+    capacity: parseInt(amenityCapacity) || 1,
+  });
+  if (error) {
+    Alert.alert('Error', error.message);
+    return;
+  }
+  Alert.alert('Amenity added', `${amenityName} is now available for booking`);
+  setAmenityName('');
+  setAmenityCapacity('1');
+  fetchAmenities();
+};
+  const cancelBooking = async (bookingId: string) => {
+    await supabase.from('bookings').delete().eq('id', bookingId);
+  };
+
   const today = new Date().toDateString();
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter);
   const statusColor = (status: string) => (status === 'approved' ? '#2e7d32' : status === 'denied' ? '#c62828' : '#ef6c00');
   const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
+  const amenityName2 = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -124,6 +177,7 @@ export default function AdminHome() {
           { value: 'notices', label: 'Notices' },
           { value: 'polls', label: 'Polls' },
           { value: 'tickets', label: 'Tickets' },
+          { value: 'amenities', label: 'Amenities' },
         ]}
       />
 
@@ -215,6 +269,44 @@ export default function AdminHome() {
         </View>
       )}
 
+      {tab === 'amenities' && (
+        <View>
+          <Text style={styles.section}>Add Amenity</Text>
+          <TextInput label="Amenity name (e.g. Clubhouse)" value={amenityName} onChangeText={setAmenityName} style={styles.input} />
+          <TextInput label="Capacity per slot" value={amenityCapacity} onChangeText={setAmenityCapacity} keyboardType="numeric" style={styles.input} />
+          <Button mode="contained" onPress={handleCreateAmenity} style={styles.input}>Add Amenity</Button>
+
+          <Text style={styles.section}>Amenities ({amenities.length})</Text>
+          {amenities.map((a) => (
+            <Card key={a.id} style={styles.card}>
+              <Card.Content>
+                <Text style={styles.visitorName}>{a.name}</Text>
+                <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
+              </Card.Content>
+            </Card>
+          ))}
+
+          <Text style={styles.section}>All Bookings</Text>
+          {bookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
+          <FlatList
+            data={bookings}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <Card style={styles.card}>
+                <Card.Content>
+                  <Text style={styles.visitorName}>{amenityName2(item.amenity_id)}</Text>
+                  <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
+                </Card.Content>
+                <Card.Actions>
+                  <Button compact onPress={() => cancelBooking(item.id)}>Cancel</Button>
+                </Card.Actions>
+              </Card>
+            )}
+          />
+        </View>
+      )}
+
       <Button mode="outlined" onPress={handleLogout} style={{ marginTop: 20 }}>Log Out</Button>
     </ScrollView>
   );
@@ -228,7 +320,7 @@ const styles = StyleSheet.create({
   statCard: { flex: 1 },
   statNum: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
   statLabel: { fontSize: 12, color: '#666', textAlign: 'center' },
-  section: { fontSize: 16, fontWeight: '600', marginBottom: 10 },
+  section: { fontSize: 16, fontWeight: '600', marginBottom: 10, marginTop: 10 },
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
   filterChip: { marginBottom: 4 },
   empty: { color: '#888', fontStyle: 'italic', marginBottom: 12 },
