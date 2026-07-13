@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
+import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
@@ -20,6 +21,7 @@ type Vote = { poll_id: string; option_id: string; voter_id: string };
 type Ticket = { id: string; category: string; description: string; status: string; created_at: string };
 type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
+type Staff = { id: string; name: string; service_type: string; phone: string | null };
 
 export default function ResidentHome() {
   const [tab, setTab] = useState('visitors');
@@ -34,9 +36,12 @@ export default function ResidentHome() {
   const [ticketDescription, setTicketDescription] = useState('');
   const [amenities, setAmenities] = useState<Amenity[]>([]);
   const [myBookings, setMyBookings] = useState<Booking[]>([]);
-  const [selectedAmenity, setSelectedAmenity] = useState<Amenity | null>(null);
   const [bookingDate, setBookingDate] = useState('');
-const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const [showAllNotices, setShowAllNotices] = useState(false);
+  const [showAllPolls, setShowAllPolls] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -85,6 +90,11 @@ const [showDatePicker, setShowDatePicker] = useState(false);
     if (data) setMyBookings(data);
   };
 
+  const fetchStaff = async () => {
+    const { data } = await supabase.from('staff_directory').select('*').order('name');
+    if (data) setStaff(data);
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: profile } = await supabase.from('profiles').select('flat_id').eq('id', userId).single();
@@ -97,6 +107,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
       fetchTickets();
       fetchAmenities();
       fetchMyBookings();
+      fetchStaff();
 
       const visitorChannel = supabase
         .channel(`visitor_requests_resident_${userId}`)
@@ -133,6 +144,11 @@ const [showDatePicker, setShowDatePicker] = useState(false);
         .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings())
         .subscribe();
 
+      const staffChannel = supabase
+        .channel(`staff_resident_${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, () => fetchStaff())
+        .subscribe();
+
       return () => {
         supabase.removeChannel(visitorChannel);
         supabase.removeChannel(noticeChannel);
@@ -141,6 +157,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
         supabase.removeChannel(ticketChannel);
         supabase.removeChannel(amenityChannel);
         supabase.removeChannel(bookingChannel);
+        supabase.removeChannel(staffChannel);
       };
     };
     init();
@@ -201,7 +218,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
 
   const handleBookSlot = async (amenity: Amenity, slot: string) => {
     if (!bookingDate) {
-      Alert.alert('Pick a date', 'Enter a date first (format: YYYY-MM-DD)');
+      Alert.alert('Pick a date', 'Choose a date first');
       return;
     }
     const { error } = await supabase.from('bookings').insert({
@@ -220,22 +237,23 @@ const [showDatePicker, setShowDatePicker] = useState(false);
     }
     Alert.alert('Booked!', `${amenity.name} — ${slot} on ${bookingDate}`);
   };
-  const onDateChange = (event: any, selectedDate?: Date) => {
-  setShowDatePicker(Platform.OS === 'ios');
-  if (selectedDate) {
-    const formatted = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    setBookingDate(formatted);
-  }
-};
 
   const cancelMyBooking = async (bookingId: string) => {
-  const { error } = await supabase.from('bookings').delete().eq('id', bookingId);
-  if (error) {
-    Alert.alert('Error', error.message);
-    return;
-  }
-  fetchMyBookings();
-};
+    const { error } = await supabase.from('bookings').delete().eq('id', bookingId);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    fetchMyBookings();
+  };
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      const formatted = selectedDate.toISOString().split('T')[0];
+      setBookingDate(formatted);
+    }
+  };
 
   const hasVoted = (pollId: string) => votes.some((v) => v.poll_id === pollId && v.voter_id === userId);
   const voteCount = (optionId: string) => votes.filter((v) => v.option_id === optionId).length;
@@ -243,6 +261,9 @@ const [showDatePicker, setShowDatePicker] = useState(false);
 
   const pendingRequests = requests.filter((r) => r.status === 'pending');
   const pastRequests = requests.filter((r) => r.status !== 'pending');
+  const visibleHistory = showAllHistory ? pastRequests : pastRequests.slice(0, 5);
+  const visibleNotices = showAllNotices ? notices : notices.slice(0, 5);
+  const visiblePolls = showAllPolls ? polls : polls.slice(0, 3);
   const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
 
   return (
@@ -257,8 +278,16 @@ const [showDatePicker, setShowDatePicker] = useState(false);
           { value: 'visitors', label: 'Visitors' },
           { value: 'notices', label: 'Notices' },
           { value: 'polls', label: 'Polls' },
+        ]}
+      />
+      <SegmentedButtons
+        value={tab}
+        onValueChange={setTab}
+        style={styles.tabs}
+        buttons={[
           { value: 'helpdesk', label: 'Helpdesk' },
           { value: 'amenities', label: 'Amenities' },
+          { value: 'staff', label: 'Staff' },
         ]}
       />
 
@@ -291,7 +320,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
           <Text style={styles.section}>History</Text>
           {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
           <FlatList
-            data={pastRequests}
+            data={visibleHistory}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -300,6 +329,11 @@ const [showDatePicker, setShowDatePicker] = useState(false);
               </View>
             )}
           />
+          {pastRequests.length > 5 && (
+            <Button compact onPress={() => setShowAllHistory(!showAllHistory)}>
+              {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
+            </Button>
+          )}
         </>
       )}
 
@@ -308,7 +342,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
           <Text style={styles.section}>Society Notices</Text>
           {notices.length === 0 && <Text style={styles.empty}>No notices yet</Text>}
           <FlatList
-            data={notices}
+            data={visibleNotices}
             keyExtractor={(item) => item.id}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -321,6 +355,11 @@ const [showDatePicker, setShowDatePicker] = useState(false);
               </Card>
             )}
           />
+          {notices.length > 5 && (
+            <Button compact onPress={() => setShowAllNotices(!showAllNotices)}>
+              {showAllNotices ? 'Show less' : `View all (${notices.length})`}
+            </Button>
+          )}
         </>
       )}
 
@@ -328,7 +367,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
         <>
           <Text style={styles.section}>Community Polls</Text>
           {polls.length === 0 && <Text style={styles.empty}>No polls yet</Text>}
-          {polls.map((poll) => (
+          {visiblePolls.map((poll) => (
             <Card key={poll.id} style={styles.card}>
               <Card.Content>
                 <Text style={styles.visitorName}>{poll.question}</Text>
@@ -344,6 +383,11 @@ const [showDatePicker, setShowDatePicker] = useState(false);
               </Card.Content>
             </Card>
           ))}
+          {polls.length > 3 && (
+            <Button compact onPress={() => setShowAllPolls(!showAllPolls)}>
+              {showAllPolls ? 'Show less' : `View all (${polls.length})`}
+            </Button>
+          )}
         </>
       )}
 
@@ -390,17 +434,17 @@ const [showDatePicker, setShowDatePicker] = useState(false);
         <>
           <Text style={styles.section}>Book an Amenity</Text>
           <Button mode="outlined" onPress={() => setShowDatePicker(true)} style={styles.input}>
-  {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
-</Button>
-{showDatePicker && (
-  <DateTimePicker
-    value={bookingDate ? new Date(bookingDate) : new Date()}
-    mode="date"
-    display="default"
-    minimumDate={new Date()}
-    onChange={onDateChange}
-  />
-)}
+            {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
+          </Button>
+          {showDatePicker && (
+            <DateTimePicker
+              value={bookingDate ? new Date(bookingDate) : new Date()}
+              mode="date"
+              display="default"
+              minimumDate={new Date()}
+              onChange={onDateChange}
+            />
+          )}
           {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
           {amenities.map((amenity) => (
             <Card key={amenity.id} style={styles.card}>
@@ -417,7 +461,6 @@ const [showDatePicker, setShowDatePicker] = useState(false);
               </Card.Content>
             </Card>
           ))}
-
           <Text style={styles.section}>My Bookings</Text>
           {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
           <FlatList
@@ -439,6 +482,21 @@ const [showDatePicker, setShowDatePicker] = useState(false);
         </>
       )}
 
+      {tab === 'staff' && (
+        <>
+          <Text style={styles.section}>Staff & Service Directory</Text>
+          {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
+          {staff.map((s) => (
+            <Card key={s.id} style={styles.card}>
+              <Card.Content>
+                <Text style={styles.visitorName}>{s.name}</Text>
+                <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+              </Card.Content>
+            </Card>
+          ))}
+        </>
+      )}
+
       <Button mode="outlined" onPress={handleLogout} style={{ marginTop: 20 }}>Log Out</Button>
     </ScrollView>
   );
@@ -447,7 +505,7 @@ const [showDatePicker, setShowDatePicker] = useState(false);
 const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: 60 },
   title: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-  tabs: { marginBottom: 16 },
+  tabs: { marginBottom: 12 },
   section: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 8 },
   empty: { color: '#888', fontStyle: 'italic' },
   card: { marginBottom: 12 },
