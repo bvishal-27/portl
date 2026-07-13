@@ -99,17 +99,39 @@ export default function AdminHome() {
   }, []);
 
   const handleCreateNotice = async () => {
-    if (!noticeTitle || !noticeBody) return;
-    const { error } = await supabase.from('notices').insert({ title: noticeTitle, body: noticeBody, created_by: userId });
-    if (!error) { setNoticeTitle(''); setNoticeBody(''); }
-  };
+  if (!noticeTitle || !noticeBody) {
+    Alert.alert('Missing info', 'Enter both title and body');
+    return;
+  }
+  const { error } = await supabase.from('notices').insert({ title: noticeTitle, body: noticeBody, created_by: userId });
+  if (error) {
+    Alert.alert('Error', error.message);
+    return;
+  }
+  Alert.alert('Notice posted', noticeTitle);
+  setNoticeTitle('');
+  setNoticeBody('');
+};
+
+
   const handleCreatePoll = async () => {
-    if (!pollQuestion || !pollOption1 || !pollOption2) return;
-    const { data: poll, error } = await supabase.from('polls').insert({ question: pollQuestion, created_by: userId }).select().single();
-    if (error || !poll) return;
-    await supabase.from('poll_options').insert([{ poll_id: poll.id, option_text: pollOption1 }, { poll_id: poll.id, option_text: pollOption2 }]);
-    setPollQuestion(''); setPollOption1(''); setPollOption2('');
-  };
+  if (!pollQuestion || !pollOption1 || !pollOption2) {
+    Alert.alert('Missing info', 'Fill question and both options');
+    return;
+  }
+  const { data: poll, error } = await supabase.from('polls').insert({ question: pollQuestion, created_by: userId }).select().single();
+  if (error || !poll) {
+    Alert.alert('Error', error?.message ?? 'Could not create poll');
+    return;
+  }
+  await supabase.from('poll_options').insert([{ poll_id: poll.id, option_text: pollOption1 }, { poll_id: poll.id, option_text: pollOption2 }]);
+  Alert.alert('Poll created', pollQuestion);
+  setPollQuestion('');
+  setPollOption1('');
+  setPollOption2('');
+};
+
+
   const updateTicketStatus = async (ticketId: string, status: string) => {
     await supabase.from('tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', ticketId);
   };
@@ -125,21 +147,22 @@ export default function AdminHome() {
   };
 
   const handleCreateTower = async () => {
-    if (!towerName) { Alert.alert('Missing info', 'Enter a tower name'); return; }
-    const { error } = await supabase.from('towers').insert({ name: towerName });
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Tower added', towerName);
-    setTowerName('');
-  };
+  if (!towerName) { Alert.alert('Missing info', 'Enter a tower name'); return; }
+  const { error } = await supabase.from('towers').insert({ name: towerName });
+  if (error) { Alert.alert('Error', error.message); return; }
+  Alert.alert('Tower added', towerName);
+  setTowerName('');
+  fetchTowers();
+};
 
   const handleCreateFlat = async () => {
-    if (!flatTowerId || !flatNumber) { Alert.alert('Missing info', 'Pick a tower and enter flat number'); return; }
-    const { error } = await supabase.from('flats').insert({ tower_id: flatTowerId, flat_number: flatNumber });
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Flat added', flatNumber);
-    setFlatNumber('');
-  };
-
+  if (!flatTowerId || !flatNumber) { Alert.alert('Missing info', 'Pick a tower and enter flat number'); return; }
+  const { error } = await supabase.from('flats').insert({ tower_id: flatTowerId, flat_number: flatNumber });
+  if (error) { Alert.alert('Error', error.message); return; }
+  Alert.alert('Flat added', flatNumber);
+  setFlatNumber('');
+  fetchFlats();
+};
   const handleCreateStaff = async () => {
     if (!staffName) { Alert.alert('Missing info', 'Enter staff name'); return; }
     const { error } = await supabase.from('staff_directory').insert({ name: staffName, service_type: staffType, phone: staffPhone });
