@@ -14,16 +14,25 @@ type VisitorRequest = {
   flats: { flat_number: string } | null;
 };
 
+type Ticket = {
+  id: string;
+  category: string;
+  description: string;
+  status: string;
+  created_at: string;
+  resident_id: string;
+};
+
 export default function AdminHome() {
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [filter, setFilter] = useState<string>('all');
   const [tab, setTab] = useState('visitors');
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
-
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOption1, setPollOption1] = useState('');
   const [pollOption2, setPollOption2] = useState('');
@@ -43,24 +52,34 @@ export default function AdminHome() {
     if (!error && data) setRequests(data as any);
   };
 
+  const fetchTickets = async () => {
+    const { data } = await supabase.from('tickets').select('*').order('created_at', { ascending: false });
+    if (data) setTickets(data);
+  };
+
   useEffect(() => {
     fetchRequests();
+    fetchTickets();
+
     const channel = supabase
       .channel('visitor_requests_admin')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests' }, () => fetchRequests())
       .subscribe();
+
+    const ticketChannel = supabase
+      .channel('tickets_admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => fetchTickets())
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(ticketChannel);
     };
   }, []);
 
   const handleCreateNotice = async () => {
     if (!noticeTitle || !noticeBody) return;
-    const { error } = await supabase.from('notices').insert({
-      title: noticeTitle,
-      body: noticeBody,
-      created_by: userId,
-    });
+    const { error } = await supabase.from('notices').insert({ title: noticeTitle, body: noticeBody, created_by: userId });
     if (!error) {
       setNoticeTitle('');
       setNoticeBody('');
@@ -69,21 +88,20 @@ export default function AdminHome() {
 
   const handleCreatePoll = async () => {
     if (!pollQuestion || !pollOption1 || !pollOption2) return;
-    const { data: poll, error } = await supabase
-      .from('polls')
-      .insert({ question: pollQuestion, created_by: userId })
-      .select()
-      .single();
+    const { data: poll, error } = await supabase.from('polls').insert({ question: pollQuestion, created_by: userId }).select().single();
     if (error || !poll) return;
-
     await supabase.from('poll_options').insert([
       { poll_id: poll.id, option_text: pollOption1 },
       { poll_id: poll.id, option_text: pollOption2 },
     ]);
-
     setPollQuestion('');
     setPollOption1('');
     setPollOption2('');
+  };
+
+  const updateTicketStatus = async (ticketId: string, status: string) => {
+    const { error } = await supabase.from('tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', ticketId);
+    if (error) console.log(error.message);
   };
 
   const today = new Date().toDateString();
@@ -91,6 +109,7 @@ export default function AdminHome() {
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter);
   const statusColor = (status: string) => (status === 'approved' ? '#2e7d32' : status === 'denied' ? '#c62828' : '#ef6c00');
+  const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -104,6 +123,7 @@ export default function AdminHome() {
           { value: 'visitors', label: 'Visitors' },
           { value: 'notices', label: 'Notices' },
           { value: 'polls', label: 'Polls' },
+          { value: 'tickets', label: 'Tickets' },
         ]}
       />
 
@@ -158,6 +178,40 @@ export default function AdminHome() {
           <TextInput label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} />
           <TextInput label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} />
           <Button mode="contained" onPress={handleCreatePoll} style={styles.input}>Create Poll</Button>
+        </View>
+      )}
+
+      {tab === 'tickets' && (
+        <View>
+          <Text style={styles.section}>All Tickets</Text>
+          {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
+          <FlatList
+            data={tickets}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <Card style={styles.card}>
+                <Card.Content>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{item.category}</Text>
+                    <Chip textStyle={{ color: 'white', fontSize: 12 }} style={{ backgroundColor: ticketStatusColor(item.status) }}>
+                      {item.status.replace('_', ' ')}
+                    </Chip>
+                  </View>
+                  <Text style={styles.meta}>{item.description}</Text>
+                  <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
+                </Card.Content>
+                <Card.Actions>
+                  {item.status !== 'in_progress' && (
+                    <Button compact onPress={() => updateTicketStatus(item.id, 'in_progress')}>In Progress</Button>
+                  )}
+                  {item.status !== 'resolved' && (
+                    <Button compact mode="contained" onPress={() => updateTicketStatus(item.id, 'resolved')}>Resolve</Button>
+                  )}
+                </Card.Actions>
+              </Card>
+            )}
+          />
         </View>
       )}
 
