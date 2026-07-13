@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Alert, ScrollView } from 'react-native';
-import { Button, Card, TextInput, SegmentedButtons } from 'react-native-paper';
+import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
@@ -14,10 +14,10 @@ type VisitorRequest = {
 };
 
 type Notice = { id: string; title: string; body: string; created_at: string };
-
 type PollOption = { id: string; option_text: string };
 type Poll = { id: string; question: string; poll_options: PollOption[] };
 type Vote = { poll_id: string; option_id: string; voter_id: string };
+type Ticket = { id: string; category: string; description: string; status: string; created_at: string };
 
 export default function ResidentHome() {
   const [tab, setTab] = useState('visitors');
@@ -27,6 +27,9 @@ export default function ResidentHome() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketCategory, setTicketCategory] = useState('general');
+  const [ticketDescription, setTicketDescription] = useState('');
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -60,6 +63,11 @@ export default function ResidentHome() {
     if (data) setVotes(data);
   };
 
+  const fetchTickets = async () => {
+    const { data } = await supabase.from('tickets').select('*').eq('resident_id', userId).order('created_at', { ascending: false });
+    if (data) setTickets(data);
+  };
+
   useEffect(() => {
     const init = async () => {
       const { data: profile } = await supabase.from('profiles').select('flat_id').eq('id', userId).single();
@@ -69,6 +77,7 @@ export default function ResidentHome() {
       fetchNotices();
       fetchPolls();
       fetchVotes();
+      fetchTickets();
 
       const visitorChannel = supabase
         .channel(`visitor_requests_resident_${userId}`)
@@ -90,11 +99,17 @@ export default function ResidentHome() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, () => fetchVotes())
         .subscribe();
 
+      const ticketChannel = supabase
+        .channel(`tickets_resident_${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `resident_id=eq.${userId}` }, () => fetchTickets())
+        .subscribe();
+
       return () => {
         supabase.removeChannel(visitorChannel);
         supabase.removeChannel(noticeChannel);
         supabase.removeChannel(pollChannel);
         supabase.removeChannel(voteChannel);
+        supabase.removeChannel(ticketChannel);
       };
     };
     init();
@@ -134,11 +149,32 @@ export default function ResidentHome() {
     if (error) Alert.alert('Already voted', 'You can only vote once per poll');
   };
 
+  const handleRaiseTicket = async () => {
+    if (!ticketDescription) {
+      Alert.alert('Missing info', 'Please describe the issue');
+      return;
+    }
+    const { error } = await supabase.from('tickets').insert({
+      resident_id: userId,
+      category: ticketCategory,
+      description: ticketDescription,
+      status: 'open',
+    });
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    setTicketDescription('');
+    Alert.alert('Ticket raised', 'The admin has been notified');
+  };
+
   const hasVoted = (pollId: string) => votes.some((v) => v.poll_id === pollId && v.voter_id === userId);
   const voteCount = (optionId: string) => votes.filter((v) => v.option_id === optionId).length;
 
   const pendingRequests = requests.filter((r) => r.status === 'pending');
   const pastRequests = requests.filter((r) => r.status !== 'pending');
+
+  const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -152,6 +188,7 @@ export default function ResidentHome() {
           { value: 'visitors', label: 'Visitors' },
           { value: 'notices', label: 'Notices' },
           { value: 'polls', label: 'Polls' },
+          { value: 'helpdesk', label: 'Helpdesk' },
         ]}
       />
 
@@ -242,6 +279,53 @@ export default function ResidentHome() {
         </>
       )}
 
+      {tab === 'helpdesk' && (
+        <>
+          <Text style={styles.section}>Raise a Ticket</Text>
+          <SegmentedButtons
+            value={ticketCategory}
+            onValueChange={setTicketCategory}
+            style={styles.input}
+            buttons={[
+              { value: 'general', label: 'General' },
+              { value: 'maintenance', label: 'Maintenance' },
+              { value: 'security', label: 'Security' },
+            ]}
+          />
+          <TextInput
+            label="Describe the issue"
+            value={ticketDescription}
+            onChangeText={setTicketDescription}
+            multiline
+            numberOfLines={3}
+            style={styles.input}
+          />
+          <Button mode="contained" onPress={handleRaiseTicket} style={styles.input}>Submit Ticket</Button>
+
+          <Text style={styles.section}>My Tickets</Text>
+          {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
+          <FlatList
+            data={tickets}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <Card style={styles.card}>
+                <Card.Content>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{item.category}</Text>
+                    <Chip textStyle={{ color: 'white', fontSize: 12 }} style={{ backgroundColor: ticketStatusColor(item.status) }}>
+                      {item.status.replace('_', ' ')}
+                    </Chip>
+                  </View>
+                  <Text style={styles.noticeBody}>{item.description}</Text>
+                  <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
+                </Card.Content>
+              </Card>
+            )}
+          />
+        </>
+      )}
+
       <Button mode="outlined" onPress={handleLogout} style={{ marginTop: 20 }}>Log Out</Button>
     </ScrollView>
   );
@@ -257,7 +341,7 @@ const styles = StyleSheet.create({
   visitorName: { fontSize: 16, fontWeight: '600' },
   visitorType: { color: '#666', textTransform: 'capitalize' },
   historyRow: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
   guestInput: { flex: 1 },
   guestBtn: { justifyContent: 'center' },
   noticeBody: { color: '#444', marginTop: 4 },
@@ -265,4 +349,5 @@ const styles = StyleSheet.create({
   pollOptionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   pollOptionText: { flex: 1 },
   votedLabel: { color: '#2e7d32', marginTop: 8, fontWeight: '600' },
+  input: { marginBottom: 12 },
 });
