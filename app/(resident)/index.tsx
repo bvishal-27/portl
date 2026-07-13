@@ -34,6 +34,7 @@ export default function ResidentHome() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketCategory, setTicketCategory] = useState('general');
   const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketLoading, setTicketLoading] = useState(false);
   const [amenities, setAmenities] = useState<Amenity[]>([]);
   const [myBookings, setMyBookings] = useState<Booking[]>([]);
   const [bookingDate, setBookingDate] = useState('');
@@ -198,22 +199,30 @@ export default function ResidentHome() {
   };
 
   const handleRaiseTicket = async () => {
+    if (ticketLoading) return;
     if (!ticketDescription) {
       Alert.alert('Missing info', 'Please describe the issue');
       return;
     }
-    const { error } = await supabase.from('tickets').insert({
-      resident_id: userId,
-      category: ticketCategory,
-      description: ticketDescription,
-      status: 'open',
-    });
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
+    setTicketLoading(true);
+    try {
+      const { error } = await supabase.from('tickets').insert({
+        resident_id: userId,
+        category: ticketCategory,
+        description: ticketDescription,
+        status: 'open',
+      });
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+      setTicketDescription('');
+      Alert.alert('Ticket raised', 'The admin has been notified');
+    } catch {
+      Alert.alert('Something went wrong', 'Check your connection and try again');
+    } finally {
+      setTicketLoading(false);
     }
-    setTicketDescription('');
-    Alert.alert('Ticket raised', 'The admin has been notified');
   };
 
   const handleBookSlot = async (amenity: Amenity, slot: string) => {
@@ -405,7 +414,7 @@ export default function ResidentHome() {
             ]}
           />
           <TextInput label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} />
-          <Button mode="contained" onPress={handleRaiseTicket} style={styles.input}>Submit Ticket</Button>
+          <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} style={styles.input}>Submit Ticket</Button>
           <Text style={styles.section}>My Tickets</Text>
           {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
           <FlatList
