@@ -21,6 +21,7 @@ export default function GuardHome() {
   const [flatNumber, setFlatNumber] = useState('');
   const [visitorType, setVisitorType] = useState('guest');
   const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -59,69 +60,91 @@ export default function GuardHome() {
   }, []);
 
   const handleRegisterVisitor = async () => {
+    if (loading) return; // guard against double-tap
     if (!name || !flatNumber) {
       Alert.alert('Missing info', 'Name and flat number are required');
       return;
     }
     setLoading(true);
 
-    const { data: flat, error: flatError } = await supabase
-      .from('flats')
-      .select('id')
-      .eq('flat_number', flatNumber)
-      .single();
+    try {
+      const { data: flat, error: flatError } = await supabase
+        .from('flats')
+        .select('id')
+        .eq('flat_number', flatNumber)
+        .single();
 
-    if (flatError || !flat) {
-      Alert.alert('Flat not found', `No flat with number "${flatNumber}"`);
+      if (flatError || !flat) {
+        Alert.alert('Flat not found', `No flat with number "${flatNumber}"`);
+        setLoading(false);
+        return;
+      }
+
+      const { data: visitor, error: visitorError } = await supabase
+        .from('visitors')
+        .insert({ name, phone, visitor_type: visitorType })
+        .select()
+        .single();
+
+      if (visitorError || !visitor) {
+        Alert.alert('Error', visitorError?.message ?? 'Could not create visitor');
+        setLoading(false);
+        return;
+      }
+
+      const { error: requestError } = await supabase.from('visitor_requests').insert({
+        visitor_id: visitor.id,
+        flat_id: flat.id,
+        requested_by: userId,
+        status: 'pending',
+      });
+
+      if (requestError) {
+        Alert.alert('Error', requestError.message);
+        setLoading(false);
+        return;
+      }
+
+      setName('');
+      setPhone('');
+      setFlatNumber('');
+    } catch (err) {
+      Alert.alert('Something went wrong', 'Please check your connection and try again');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { data: visitor, error: visitorError } = await supabase
-      .from('visitors')
-      .insert({ name, phone, visitor_type: visitorType })
-      .select()
-      .single();
-
-    if (visitorError || !visitor) {
-      Alert.alert('Error', visitorError?.message ?? 'Could not create visitor');
-      setLoading(false);
-      return;
-    }
-
-    const { error: requestError } = await supabase.from('visitor_requests').insert({
-      visitor_id: visitor.id,
-      flat_id: flat.id,
-      requested_by: userId,
-      status: 'pending',
-    });
-
-    if (requestError) {
-      Alert.alert('Error', requestError.message);
-      setLoading(false);
-      return;
-    }
-
-    setName('');
-    setPhone('');
-    setFlatNumber('');
-    setLoading(false);
   };
 
   const markEntry = async (id: string) => {
-    const { error } = await supabase
-      .from('visitor_requests')
-      .update({ entry_time: new Date().toISOString() })
-      .eq('id', id);
-    if (error) Alert.alert('Error', error.message);
+    if (actionLoadingId) return;
+    setActionLoadingId(id);
+    try {
+      const { error } = await supabase
+        .from('visitor_requests')
+        .update({ entry_time: new Date().toISOString() })
+        .eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+    } catch {
+      Alert.alert('Something went wrong', 'Please try again');
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   const markExit = async (id: string) => {
-    const { error } = await supabase
-      .from('visitor_requests')
-      .update({ exit_time: new Date().toISOString() })
-      .eq('id', id);
-    if (error) Alert.alert('Error', error.message);
+    if (actionLoadingId) return;
+    setActionLoadingId(id);
+    try {
+      const { error } = await supabase
+        .from('visitor_requests')
+        .update({ exit_time: new Date().toISOString() })
+        .eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+    } catch {
+      Alert.alert('Something went wrong', 'Please try again');
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   const statusColor = (status: string) => {
@@ -149,7 +172,7 @@ export default function GuardHome() {
           { value: 'service', label: 'Service' },
         ]}
       />
-      <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} style={styles.input}>
+      <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} style={styles.input}>
         Send Approval Request
       </Button>
 
@@ -173,12 +196,12 @@ export default function GuardHome() {
             </Card.Content>
             {item.status === 'approved' && !item.entry_time && (
               <Card.Actions>
-                <Button mode="contained" onPress={() => markEntry(item.id)}>Mark Entry</Button>
+                <Button mode="contained" loading={actionLoadingId === item.id} disabled={actionLoadingId === item.id} onPress={() => markEntry(item.id)}>Mark Entry</Button>
               </Card.Actions>
             )}
             {item.entry_time && !item.exit_time && (
               <Card.Actions>
-                <Button mode="outlined" onPress={() => markExit(item.id)}>Mark Exit</Button>
+                <Button mode="outlined" loading={actionLoadingId === item.id} disabled={actionLoadingId === item.id} onPress={() => markExit(item.id)}>Mark Exit</Button>
               </Card.Actions>
             )}
           </Card>
