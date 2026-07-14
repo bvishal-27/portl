@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "393705786261",
+    "project_id": "portl-45785",
+    "storage_bucket": "portl-45785.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:393705786261:android:d552050e224e02c177449c",
+        "android_client_info": {
+          "package_name": "com.bvishal327.portl"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_f7yHxXG3fW2VS3gbQw7UpbT2qZdketY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

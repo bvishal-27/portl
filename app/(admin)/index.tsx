@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image } from 'react-native';
 import { Button, Card, Chip, TextInput, SegmentedButtons } from 'react-native-paper';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-type VisitorRequest = { id: string; status: string; pre_approved: boolean; created_at: string; visitors: { name: string; visitor_type: string } | null; flats: { flat_number: string } | null; };
+type VisitorRequest = {
+  id: string;
+  status: string;
+  pre_approved: boolean;
+  created_at: string;
+  visitors: { name: string; visitor_type: string; photo_url: string | null } | null;
+  flats: { flat_number: string } | null;
+};
 type Ticket = { id: string; category: string; description: string; status: string; created_at: string };
 type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 type Profile = { id: string; full_name: string; role: string; flat_id: string | null };
-type Staff = { id: string; name: string; service_type: string; phone: string | null };
+type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
 
 export default function AdminHome() {
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
@@ -42,6 +52,7 @@ export default function AdminHome() {
   const [staffName, setStaffName] = useState('');
   const [staffType, setStaffType] = useState('plumber');
   const [staffPhone, setStaffPhone] = useState('');
+  const [staffPhotoUri, setStaffPhotoUri] = useState<string | null>(null);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -50,7 +61,7 @@ export default function AdminHome() {
   };
 
   const fetchRequests = async () => {
-    const { data } = await supabase.from('visitor_requests').select('id, status, pre_approved, created_at, visitors(name, visitor_type), flats(flat_number)').order('created_at', { ascending: false }).limit(50);
+    const { data } = await supabase.from('visitor_requests').select('id, status, pre_approved, created_at, visitors(name, visitor_type, photo_url), flats(flat_number)').order('created_at', { ascending: false }).limit(50);
     if (data) setRequests(data as any);
   };
   const fetchTickets = async () => {
@@ -99,42 +110,26 @@ export default function AdminHome() {
   }, []);
 
   const handleCreateNotice = async () => {
-  if (!noticeTitle || !noticeBody) {
-    Alert.alert('Missing info', 'Enter both title and body');
-    return;
-  }
-  const { error } = await supabase.from('notices').insert({ title: noticeTitle, body: noticeBody, created_by: userId });
-  if (error) {
-    Alert.alert('Error', error.message);
-    return;
-  }
-  Alert.alert('Notice posted', noticeTitle);
-  setNoticeTitle('');
-  setNoticeBody('');
-};
-
+    if (!noticeTitle || !noticeBody) { Alert.alert('Missing info', 'Enter both title and body'); return; }
+    const { error } = await supabase.from('notices').insert({ title: noticeTitle, body: noticeBody, created_by: userId });
+    if (error) { Alert.alert('Error', error.message); return; }
+    Alert.alert('Notice posted', noticeTitle);
+    setNoticeTitle(''); setNoticeBody('');
+  };
 
   const handleCreatePoll = async () => {
-  if (!pollQuestion || !pollOption1 || !pollOption2) {
-    Alert.alert('Missing info', 'Fill question and both options');
-    return;
-  }
-  const { data: poll, error } = await supabase.from('polls').insert({ question: pollQuestion, created_by: userId }).select().single();
-  if (error || !poll) {
-    Alert.alert('Error', error?.message ?? 'Could not create poll');
-    return;
-  }
-  await supabase.from('poll_options').insert([{ poll_id: poll.id, option_text: pollOption1 }, { poll_id: poll.id, option_text: pollOption2 }]);
-  Alert.alert('Poll created', pollQuestion);
-  setPollQuestion('');
-  setPollOption1('');
-  setPollOption2('');
-};
-
+    if (!pollQuestion || !pollOption1 || !pollOption2) { Alert.alert('Missing info', 'Fill question and both options'); return; }
+    const { data: poll, error } = await supabase.from('polls').insert({ question: pollQuestion, created_by: userId }).select().single();
+    if (error || !poll) { Alert.alert('Error', error?.message ?? 'Could not create poll'); return; }
+    await supabase.from('poll_options').insert([{ poll_id: poll.id, option_text: pollOption1 }, { poll_id: poll.id, option_text: pollOption2 }]);
+    Alert.alert('Poll created', pollQuestion);
+    setPollQuestion(''); setPollOption1(''); setPollOption2('');
+  };
 
   const updateTicketStatus = async (ticketId: string, status: string) => {
     await supabase.from('tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', ticketId);
   };
+
   const handleCreateAmenity = async () => {
     if (!amenityName) { Alert.alert('Missing info', 'Enter an amenity name'); return; }
     const { error } = await supabase.from('amenities').insert({ name: amenityName, capacity: parseInt(amenityCapacity) || 1 });
@@ -142,33 +137,80 @@ export default function AdminHome() {
     Alert.alert('Amenity added', `${amenityName} is now available`);
     setAmenityName(''); setAmenityCapacity('1');
   };
+
   const cancelBooking = async (bookingId: string) => {
     await supabase.from('bookings').delete().eq('id', bookingId);
   };
 
   const handleCreateTower = async () => {
-  if (!towerName) { Alert.alert('Missing info', 'Enter a tower name'); return; }
-  const { error } = await supabase.from('towers').insert({ name: towerName });
-  if (error) { Alert.alert('Error', error.message); return; }
-  Alert.alert('Tower added', towerName);
-  setTowerName('');
-  fetchTowers();
-};
+    if (!towerName) { Alert.alert('Missing info', 'Enter a tower name'); return; }
+    const { error } = await supabase.from('towers').insert({ name: towerName });
+    if (error) { Alert.alert('Error', error.message); return; }
+    Alert.alert('Tower added', towerName);
+    setTowerName('');
+    fetchTowers();
+  };
 
   const handleCreateFlat = async () => {
-  if (!flatTowerId || !flatNumber) { Alert.alert('Missing info', 'Pick a tower and enter flat number'); return; }
-  const { error } = await supabase.from('flats').insert({ tower_id: flatTowerId, flat_number: flatNumber });
-  if (error) { Alert.alert('Error', error.message); return; }
-  Alert.alert('Flat added', flatNumber);
-  setFlatNumber('');
-  fetchFlats();
-};
+    if (!flatTowerId || !flatNumber) { Alert.alert('Missing info', 'Pick a tower and enter flat number'); return; }
+    const { error } = await supabase.from('flats').insert({ tower_id: flatTowerId, flat_number: flatNumber });
+    if (error) { Alert.alert('Error', error.message); return; }
+    Alert.alert('Flat added', flatNumber);
+    setFlatNumber('');
+    fetchFlats();
+  };
+
+  const pickStaffPhoto = async () => {
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.5,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) {
+      setStaffPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const uploadStaffPhoto = async (uri: string): Promise<string | null> => {
+    try {
+      const fileName = `staff_${Date.now()}.jpg`;
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      const arrayBuffer = decode(base64);
+      const { error } = await supabase.storage.from('portl-images').upload(fileName, arrayBuffer, {
+        contentType: 'image/jpeg',
+      });
+      if (error) {
+        console.log('Upload error:', error.message);
+        return null;
+      }
+      const { data } = supabase.storage.from('portl-images').getPublicUrl(fileName);
+      return data.publicUrl;
+    } catch (err) {
+      console.log('Upload failed:', err);
+      return null;
+    }
+  };
+
   const handleCreateStaff = async () => {
     if (!staffName) { Alert.alert('Missing info', 'Enter staff name'); return; }
-    const { error } = await supabase.from('staff_directory').insert({ name: staffName, service_type: staffType, phone: staffPhone });
+
+    let photoUrl: string | null = null;
+    if (staffPhotoUri) {
+      photoUrl = await uploadStaffPhoto(staffPhotoUri);
+    }
+
+    const { error } = await supabase.from('staff_directory').insert({
+      name: staffName,
+      service_type: staffType,
+      phone: staffPhone,
+      photo_url: photoUrl,
+    });
     if (error) { Alert.alert('Error', error.message); return; }
     Alert.alert('Added', `${staffName} added to directory`);
-    setStaffName(''); setStaffPhone('');
+    setStaffName('');
+    setStaffPhone('');
+    setStaffPhotoUri(null);
   };
 
   const deleteStaff = async (id: string) => {
@@ -225,10 +267,23 @@ export default function AdminHome() {
           {filtered.length === 0 && <Text style={styles.empty}>No visitor records</Text>}
           <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} renderItem={({ item }) => (
             <Card style={styles.card}><Card.Content>
-              <View style={styles.row}><Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                <Chip textStyle={{ color: 'white', fontSize: 12 }} style={{ backgroundColor: statusColor(item.status) }}>{item.pre_approved ? 'pre-approved' : item.status}</Chip></View>
-              <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-              <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
+              <View style={styles.rowWithImage}>
+                {item.visitors?.photo_url ? (
+                  <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                ) : (
+                  <View style={styles.thumbPlaceholder}>
+                    <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{item.visitors?.name}</Text>
+                    <Chip textStyle={{ color: 'white', fontSize: 12 }} style={{ backgroundColor: statusColor(item.status) }}>{item.pre_approved ? 'pre-approved' : item.status}</Chip>
+                  </View>
+                  <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+                  <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
+                </View>
+              </View>
             </Card.Content></Card>
           )} />
         </>
@@ -345,8 +400,15 @@ export default function AdminHome() {
               <Text style={styles.section}>All Residents ({residents.length})</Text>
               {residents.map((r) => (
                 <Card key={r.id} style={styles.card}><Card.Content>
-                  <Text style={styles.visitorName}>{r.full_name}</Text>
-                  <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                  <View style={styles.rowWithImage}>
+                    <View style={styles.thumbPlaceholder}>
+                      <Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.visitorName}>{r.full_name}</Text>
+                      <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                    </View>
+                  </View>
                 </Card.Content></Card>
               ))}
             </View>
@@ -367,11 +429,28 @@ export default function AdminHome() {
                 ]}
               />
               <TextInput label="Phone" value={staffPhone} onChangeText={setStaffPhone} keyboardType="phone-pad" style={styles.input} />
+              <Button mode="outlined" onPress={pickStaffPhoto} style={styles.input}>
+                {staffPhotoUri ? 'Retake Photo' : 'Take Photo (optional)'}
+              </Button>
+              {staffPhotoUri && (
+                <Image source={{ uri: staffPhotoUri }} style={{ width: 80, height: 80, borderRadius: 8, marginBottom: 14 }} />
+              )}
               <Button mode="contained" onPress={handleCreateStaff} style={styles.input}>Add to Directory</Button>
               {staff.map((s) => (
                 <Card key={s.id} style={styles.card}><Card.Content>
-                  <Text style={styles.visitorName}>{s.name}</Text>
-                  <Text style={styles.meta}>{s.service_type} · {s.phone}</Text>
+                  <View style={styles.rowWithImage}>
+                    {s.photo_url ? (
+                      <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
+                    ) : (
+                      <View style={styles.thumbPlaceholderSmall}>
+                        <Text style={styles.thumbInitial}>{s.name[0]?.toUpperCase()}</Text>
+                      </View>
+                    )}
+                    <View>
+                      <Text style={styles.visitorName}>{s.name}</Text>
+                      <Text style={styles.meta}>{s.service_type} · {s.phone}</Text>
+                    </View>
+                  </View>
                 </Card.Content><Card.Actions><Button compact onPress={() => deleteStaff(s.id)}>Remove</Button></Card.Actions></Card>
               ))}
             </View>
@@ -398,7 +477,13 @@ const styles = StyleSheet.create({
   empty: { color: '#888', fontStyle: 'italic', marginBottom: 12 },
   card: { marginBottom: 10 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   visitorName: { fontSize: 15, fontWeight: '600' },
   meta: { color: '#666', marginTop: 2, fontSize: 13 },
   input: { marginBottom: 12 },
+  thumb: { width: 56, height: 56, borderRadius: 28 },
+  thumbPlaceholder: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
+  thumbSmall: { width: 48, height: 48, borderRadius: 24 },
+  thumbPlaceholderSmall: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
+  thumbInitial: { color: 'white', fontSize: 18, fontWeight: '700' },
 });
