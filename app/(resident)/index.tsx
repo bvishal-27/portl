@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image } from 'react-native';
-import { Button, Card, TextInput, SegmentedButtons, Chip } from 'react-native-paper';
+import { Button, Card, TextInput, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -8,6 +8,8 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
+
+const PRIMARY = '#673AB7';
 
 type VisitorRequest = {
   id: string;
@@ -25,6 +27,15 @@ type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
 
+const TABS = [
+  { key: 'visitors', label: 'Visitors', icon: 'account-group' },
+  { key: 'notices', label: 'Notices', icon: 'bullhorn' },
+  { key: 'polls', label: 'Polls', icon: 'poll' },
+  { key: 'helpdesk', label: 'Helpdesk', icon: 'headset' },
+  { key: 'amenities', label: 'Amenities', icon: 'calendar-check' },
+  { key: 'staff', label: 'Staff', icon: 'account-hard-hat' },
+];
+
 export default function ResidentHome() {
   const [tab, setTab] = useState('visitors');
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
@@ -38,6 +49,7 @@ export default function ResidentHome() {
   const [votes, setVotes] = useState<Vote[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketCategory, setTicketCategory] = useState('general');
+  const [customCategory, setCustomCategory] = useState('');
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketLoading, setTicketLoading] = useState(false);
   const [amenities, setAmenities] = useState<Amenity[]>([]);
@@ -65,7 +77,6 @@ export default function ResidentHome() {
       .order('created_at', { ascending: false });
     if (!error && data) setRequests(data as any);
   };
-
   const fetchNotices = async () => {
     const { data } = await supabase.from('notices').select('*').order('created_at', { ascending: false });
     if (data) setNotices(data);
@@ -109,49 +120,17 @@ export default function ResidentHome() {
       fetchMyBookings();
       fetchStaff();
 
-      const visitorChannel = supabase
-        .channel(`visitor_requests_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests', filter: `flat_id=eq.${profile.flat_id}` }, () => fetchRequests(profile.flat_id))
-        .subscribe();
-      const noticeChannel = supabase
-        .channel(`notices_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, () => fetchNotices())
-        .subscribe();
-      const pollChannel = supabase
-        .channel(`polls_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, () => fetchPolls())
-        .subscribe();
-      const voteChannel = supabase
-        .channel(`votes_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, () => fetchVotes())
-        .subscribe();
-      const ticketChannel = supabase
-        .channel(`tickets_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `resident_id=eq.${userId}` }, () => fetchTickets())
-        .subscribe();
-      const amenityChannel = supabase
-        .channel(`amenities_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'amenities' }, () => fetchAmenities())
-        .subscribe();
-      const bookingChannel = supabase
-        .channel(`bookings_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings())
-        .subscribe();
-      const staffChannel = supabase
-        .channel(`staff_resident_${userId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, () => fetchStaff())
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(visitorChannel);
-        supabase.removeChannel(noticeChannel);
-        supabase.removeChannel(pollChannel);
-        supabase.removeChannel(voteChannel);
-        supabase.removeChannel(ticketChannel);
-        supabase.removeChannel(amenityChannel);
-        supabase.removeChannel(bookingChannel);
-        supabase.removeChannel(staffChannel);
-      };
+      const channels = [
+        supabase.channel(`visitor_requests_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests', filter: `flat_id=eq.${profile.flat_id}` }, () => fetchRequests(profile.flat_id)).subscribe(),
+        supabase.channel(`notices_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, () => fetchNotices()).subscribe(),
+        supabase.channel(`polls_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, () => fetchPolls()).subscribe(),
+        supabase.channel(`votes_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, () => fetchVotes()).subscribe(),
+        supabase.channel(`tickets_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `resident_id=eq.${userId}` }, () => fetchTickets()).subscribe(),
+        supabase.channel(`amenities_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'amenities' }, () => fetchAmenities()).subscribe(),
+        supabase.channel(`bookings_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings()).subscribe(),
+        supabase.channel(`staff_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, () => fetchStaff()).subscribe(),
+      ];
+      return () => channels.forEach((c) => supabase.removeChannel(c));
     };
     init();
   }, [userId]);
@@ -162,12 +141,7 @@ export default function ResidentHome() {
   };
 
   const pickGuestPhoto = async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.5,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.5, allowsEditing: true, aspect: [1, 1] });
     if (!result.canceled) setGuestPhotoUri(result.assets[0].uri);
   };
 
@@ -195,7 +169,6 @@ export default function ResidentHome() {
     try {
       let photoUrl: string | null = null;
       if (guestPhotoUri) photoUrl = await uploadGuestPhoto(guestPhotoUri);
-
       const { data: visitor, error: visitorError } = await supabase
         .from('visitors')
         .insert({ name: guestName, phone: guestPhone, visitor_type: 'guest', photo_url: photoUrl })
@@ -206,10 +179,7 @@ export default function ResidentHome() {
         return;
       }
       const { error: requestError } = await supabase.from('visitor_requests').insert({
-        visitor_id: visitor.id,
-        flat_id: flatId,
-        status: 'approved',
-        pre_approved: true,
+        visitor_id: visitor.id, flat_id: flatId, status: 'approved', pre_approved: true,
       });
       if (requestError) {
         Alert.alert('Error', requestError.message);
@@ -235,19 +205,22 @@ export default function ResidentHome() {
       Alert.alert('Missing info', 'Please describe the issue');
       return;
     }
+    if (ticketCategory === 'other' && !customCategory.trim()) {
+      Alert.alert('Missing info', 'Please specify the category');
+      return;
+    }
     setTicketLoading(true);
     try {
+      const finalCategory = ticketCategory === 'other' ? customCategory.trim() : ticketCategory;
       const { error } = await supabase.from('tickets').insert({
-        resident_id: userId,
-        category: ticketCategory,
-        description: ticketDescription,
-        status: 'open',
+        resident_id: userId, category: finalCategory, description: ticketDescription, status: 'open',
       });
       if (error) {
         Alert.alert('Error', error.message);
         return;
       }
       setTicketDescription('');
+      setCustomCategory('');
       Alert.alert('Ticket raised', 'The admin has been notified');
     } finally {
       setTicketLoading(false);
@@ -260,10 +233,7 @@ export default function ResidentHome() {
       return;
     }
     const { error } = await supabase.from('bookings').insert({
-      amenity_id: amenity.id,
-      resident_id: userId,
-      booking_date: bookingDate,
-      slot,
+      amenity_id: amenity.id, resident_id: userId, booking_date: bookingDate, slot,
     });
     if (error) {
       if (error.code === '23505') Alert.alert('Already booked', 'This slot is taken for that date. Pick another.');
@@ -297,228 +267,359 @@ export default function ResidentHome() {
   const visibleNotices = showAllNotices ? notices : notices.slice(0, 5);
   const visiblePolls = showAllPolls ? polls : polls.slice(0, 3);
   const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
+  const ticketStatusBg = (status: string) => (status === 'resolved' ? '#e8f5e9' : status === 'in_progress' ? '#fff3e0' : '#f0f0f0');
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Resident Dashboard</Text>
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.eyebrow}>PORTL</Text>
+          <Text style={styles.title}>Resident</Text>
+        </View>
+        <IconButton icon="logout" size={22} iconColor={PRIMARY} onPress={handleLogout} style={styles.logoutBtn} />
+      </View>
 
-      <SegmentedButtons value={tab} onValueChange={setTab} style={styles.tabs} buttons={[
-        { value: 'visitors', label: 'Visitors' }, { value: 'notices', label: 'Notices' }, { value: 'polls', label: 'Polls' },
-      ]} />
-      <SegmentedButtons value={tab} onValueChange={setTab} style={styles.tabs} buttons={[
-        { value: 'helpdesk', label: 'Helpdesk' }, { value: 'amenities', label: 'Amenities' }, { value: 'staff', label: 'Staff' },
-      ]} />
+      <View style={styles.tabBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+          {TABS.map((t) => (
+            <Chip
+              key={t.key}
+              icon={t.icon}
+              selected={tab === t.key}
+              onPress={() => setTab(t.key)}
+              style={[styles.tabChip, tab === t.key && { backgroundColor: PRIMARY }]}
+              textStyle={tab === t.key ? { color: 'white', fontWeight: '600' } : { color: '#4a4560' }}
+              selectedColor="white"
+            >
+              {t.label}
+            </Chip>
+          ))}
+        </ScrollView>
+      </View>
 
-      {tab === 'visitors' && (
-        <>
-          <Text style={styles.section}>Pre-approve a Guest</Text>
-          <TextInput label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.input} />
-          <TextInput label="Guest phone (optional)" value={guestPhone} onChangeText={setGuestPhone} keyboardType="phone-pad" style={styles.input} />
-          <Button mode="outlined" onPress={pickGuestPhoto} style={styles.input}>
-            {guestPhotoUri ? 'Retake Photo' : 'Add Photo (optional)'}
-          </Button>
-          {guestPhotoUri && <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />}
-          <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} style={styles.input}>
-            Pre-approve Guest
-          </Button>
-
-          <Text style={styles.section}>Pending Approvals</Text>
-          {pendingRequests.length === 0 && <Text style={styles.empty}>No pending requests</Text>}
-          <FlatList data={pendingRequests} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-            <Card style={styles.card}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {tab === 'visitors' && (
+          <>
+            <Card style={styles.sectionCard} mode="elevated">
               <Card.Content>
-                <View style={styles.rowWithImage}>
-                  {item.visitors?.photo_url ? (
-                    <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={PRIMARY} />
+                  <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
+                </View>
+                <TextInput mode="outlined" label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+                <TextInput mode="outlined" label="Guest phone (optional)" value={guestPhone} onChangeText={setGuestPhone} keyboardType="phone-pad" style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+                <View style={styles.photoRow}>
+                  {guestPhotoUri ? (
+                    <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />
                   ) : (
-                    <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                    <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color="#b3a6d6" /></View>
                   )}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                    <Text style={styles.visitorType}>{item.visitors?.visitor_type}{item.visitors?.phone ? ` · ${item.visitors.phone}` : ''}</Text>
-                  </View>
+                  <Button mode="outlined" onPress={pickGuestPhoto} icon="camera" textColor={PRIMARY} style={styles.photoButton}>
+                    {guestPhotoUri ? 'Retake' : 'Add Photo'}
+                  </Button>
                 </View>
+                <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                  Pre-approve Guest
+                </Button>
               </Card.Content>
-              <Card.Actions>
-                <Button onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
-                <Button mode="contained" onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
-              </Card.Actions>
             </Card>
-          )} />
 
-          <Text style={styles.section}>History</Text>
-          {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
-          <FlatList data={visibleHistory} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-            <View style={styles.historyRowImg}>
-              {item.visitors?.photo_url ? (
-                <Image source={{ uri: item.visitors.photo_url }} style={styles.thumbSmall} />
-              ) : (
-                <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-              )}
-              <Text style={{ flex: 1 }}>{item.visitors?.name} — {item.status}{item.pre_approved ? ' (pre-approved)' : ''}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Pending Approvals</Text>
+              {pendingRequests.length > 0 && <Text style={styles.countBadge}>{pendingRequests.length}</Text>}
             </View>
-          )} />
-          {pastRequests.length > 5 && (
-            <Button compact onPress={() => setShowAllHistory(!showAllHistory)}>
-              {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
-            </Button>
-          )}
-        </>
-      )}
-
-      {tab === 'notices' && (
-        <>
-          <Text style={styles.section}>Society Notices</Text>
-          {notices.length === 0 && <Text style={styles.empty}>No notices yet</Text>}
-          <FlatList data={visibleNotices} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-            <Card style={styles.card}><Card.Content>
-              <Text style={styles.visitorName}>{item.title}</Text>
-              <Text style={styles.noticeBody}>{item.body}</Text>
-              <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
-            </Card.Content></Card>
-          )} />
-          {notices.length > 5 && (
-            <Button compact onPress={() => setShowAllNotices(!showAllNotices)}>
-              {showAllNotices ? 'Show less' : `View all (${notices.length})`}
-            </Button>
-          )}
-        </>
-      )}
-
-      {tab === 'polls' && (
-        <>
-          <Text style={styles.section}>Community Polls</Text>
-          {polls.length === 0 && <Text style={styles.empty}>No polls yet</Text>}
-          {visiblePolls.map((poll) => (
-            <Card key={poll.id} style={styles.card}><Card.Content>
-              <Text style={styles.visitorName}>{poll.question}</Text>
-              {poll.poll_options?.map((opt) => (
-                <View key={opt.id} style={styles.pollOptionRow}>
-                  <Text style={styles.pollOptionText}>{opt.option_text} — {voteCount(opt.id)} votes</Text>
-                  {!hasVoted(poll.id) && <Button mode="outlined" compact onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
-                </View>
-              ))}
-              {hasVoted(poll.id) && <Text style={styles.votedLabel}>You voted</Text>}
-            </Card.Content></Card>
-          ))}
-          {polls.length > 3 && (
-            <Button compact onPress={() => setShowAllPolls(!showAllPolls)}>
-              {showAllPolls ? 'Show less' : `View all (${polls.length})`}
-            </Button>
-          )}
-        </>
-      )}
-
-      {tab === 'helpdesk' && (
-        <>
-          <Text style={styles.section}>Raise a Ticket</Text>
-          <SegmentedButtons value={ticketCategory} onValueChange={setTicketCategory} style={styles.input} buttons={[
-            { value: 'general', label: 'General' }, { value: 'maintenance', label: 'Maintenance' }, { value: 'security', label: 'Security' },
-          ]} />
-          <TextInput label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} />
-          <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} style={styles.input}>Submit Ticket</Button>
-          <Text style={styles.section}>My Tickets</Text>
-          {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
-          <FlatList data={tickets} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-            <Card style={styles.card}><Card.Content>
-              <View style={styles.row}>
-                <Text style={styles.visitorName}>{item.category}</Text>
-                <Chip textStyle={{ color: 'white', fontSize: 12 }} style={{ backgroundColor: ticketStatusColor(item.status) }}>{item.status.replace('_', ' ')}</Chip>
+            {pendingRequests.length === 0 && (
+              <View style={styles.emptyState}>
+                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Text style={styles.empty}>No pending requests</Text>
               </View>
-              <Text style={styles.noticeBody}>{item.description}</Text>
-              <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
-            </Card.Content></Card>
-          )} />
-        </>
-      )}
+            )}
+            <FlatList data={pendingRequests} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+              <Card style={styles.card} mode="elevated">
+                <Card.Content>
+                  <View style={styles.rowWithImage}>
+                    {item.visitors?.photo_url ? (
+                      <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                    ) : (
+                      <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.visitorName}>{item.visitors?.name}</Text>
+                      <Text style={styles.meta}>{item.visitors?.visitor_type}{item.visitors?.phone ? ` · ${item.visitors.phone}` : ''}</Text>
+                    </View>
+                  </View>
+                </Card.Content>
+                <Divider style={{ marginTop: 8 }} />
+                <Card.Actions>
+                  <Button textColor="#c62828" onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
+                  <Button mode="contained" buttonColor={PRIMARY} onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
+                </Card.Actions>
+              </Card>
+            )} />
 
-      {tab === 'amenities' && (
-        <>
-          <Text style={styles.section}>Book an Amenity</Text>
-          <Button mode="outlined" onPress={() => setShowDatePicker(true)} style={styles.input}>
-            {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
-          </Button>
-          {showDatePicker && (
-            <DateTimePicker value={bookingDate ? new Date(bookingDate) : new Date()} mode="date" display="default" minimumDate={new Date()} onChange={onDateChange} />
-          )}
-          {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
-          {amenities.map((amenity) => (
-            <Card key={amenity.id} style={styles.card}><Card.Content>
-              <Text style={styles.visitorName}>{amenity.name}</Text>
-              <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
-              <View style={styles.slotWrap}>
-                {amenity.slots.map((slot) => (
-                  <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip}>{slot}</Chip>
-                ))}
-              </View>
-            </Card.Content></Card>
-          ))}
-          <Text style={styles.section}>My Bookings</Text>
-          {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
-          <FlatList data={myBookings} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-            <Card style={styles.card}><Card.Content>
-              <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
-              <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
-            </Card.Content><Card.Actions><Button compact onPress={() => cancelMyBooking(item.id)}>Cancel</Button></Card.Actions></Card>
-          )} />
-        </>
-      )}
-
-      {tab === 'staff' && (
-        <>
-          <Text style={styles.section}>Staff & Service Directory</Text>
-          {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
-          {staff.map((s) => (
-            <Card key={s.id} style={styles.card}><Card.Content>
-              <View style={styles.rowWithImage}>
-                {s.photo_url ? (
-                  <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
+            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+              <Avatar.Icon size={30} icon="history" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>History</Text>
+            </View>
+            {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
+            <FlatList data={visibleHistory} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
+              <View style={styles.historyRow}>
+                {item.visitors?.photo_url ? (
+                  <Image source={{ uri: item.visitors.photo_url }} style={styles.thumbSmall} />
                 ) : (
-                  <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
+                  <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
                 )}
-                <View>
-                  <Text style={styles.visitorName}>{s.name}</Text>
-                  <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historyName}>{item.visitors?.name}</Text>
+                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleDateString()}</Text>
                 </View>
+                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: item.status === 'approved' ? '#2e7d32' : '#c62828' }} style={{ backgroundColor: item.status === 'approved' ? '#e8f5e9' : '#fdecea' }}>
+                  {item.pre_approved ? 'pre-approved' : item.status}
+                </Chip>
               </View>
-            </Card.Content></Card>
-          ))}
-        </>
-      )}
+            )} />
+            {pastRequests.length > 5 && (
+              <Button compact textColor={PRIMARY} onPress={() => setShowAllHistory(!showAllHistory)}>
+                {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
+              </Button>
+            )}
+          </>
+        )}
 
-      <Button mode="outlined" onPress={handleLogout} style={{ marginTop: 20 }}>Log Out</Button>
-    </ScrollView>
+        {tab === 'notices' && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Society Notices</Text>
+            </View>
+            {notices.length === 0 && (
+              <View style={styles.emptyState}>
+                <Avatar.Icon size={44} icon="bullhorn-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Text style={styles.empty}>No notices yet</Text>
+              </View>
+            )}
+            <FlatList data={visibleNotices} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+              <Card style={styles.card} mode="elevated">
+                <Card.Content>
+                  <Text style={styles.visitorName}>{item.title}</Text>
+                  <Text style={styles.noticeBody}>{item.body}</Text>
+                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                </Card.Content>
+              </Card>
+            )} />
+            {notices.length > 5 && (
+              <Button compact textColor={PRIMARY} onPress={() => setShowAllNotices(!showAllNotices)}>
+                {showAllNotices ? 'Show less' : `View all (${notices.length})`}
+              </Button>
+            )}
+          </>
+        )}
+
+        {tab === 'polls' && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Community Polls</Text>
+            </View>
+            {polls.length === 0 && (
+              <View style={styles.emptyState}>
+                <Avatar.Icon size={44} icon="poll" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Text style={styles.empty}>No polls yet</Text>
+              </View>
+            )}
+            {visiblePolls.map((poll) => (
+              <Card key={poll.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+                <Card.Content>
+                  <Text style={styles.visitorName}>{poll.question}</Text>
+                  {poll.poll_options?.map((opt) => (
+                    <View key={opt.id} style={styles.pollOptionRow}>
+                      <Text style={styles.pollOptionText}>{opt.option_text} — {voteCount(opt.id)} votes</Text>
+                      {!hasVoted(poll.id) && <Button mode="outlined" compact textColor={PRIMARY} onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
+                    </View>
+                  ))}
+                  {hasVoted(poll.id) && <Text style={styles.votedLabel}>✓ You voted</Text>}
+                </Card.Content>
+              </Card>
+            ))}
+            {polls.length > 3 && (
+              <Button compact textColor={PRIMARY} onPress={() => setShowAllPolls(!showAllPolls)}>
+                {showAllPolls ? 'Show less' : `View all (${polls.length})`}
+              </Button>
+            )}
+          </>
+        )}
+
+        {tab === 'helpdesk' && (
+          <>
+            <Card style={styles.sectionCard} mode="elevated">
+              <Card.Content>
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={PRIMARY} />
+                  <Text style={styles.sectionTitle}>Raise a Ticket</Text>
+                </View>
+                <View style={styles.chipSelectRow}>
+                  {['general', 'maintenance', 'security', 'other'].map((c) => (
+                    <Chip key={c} selected={ticketCategory === c} onPress={() => setTicketCategory(c)} style={[styles.tabChip, ticketCategory === c && { backgroundColor: PRIMARY }]} textStyle={ticketCategory === c ? { color: 'white' } : {}}>
+                      {c}
+                    </Chip>
+                  ))}
+                </View>
+                {ticketCategory === 'other' && (
+                  <TextInput mode="outlined" label="Specify category" value={customCategory} onChangeText={setCustomCategory} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+                )}
+                <TextInput mode="outlined" label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+                <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                  Submit Ticket
+                </Button>
+              </Card.Content>
+            </Card>
+
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="ticket-confirmation" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>My Tickets</Text>
+            </View>
+            {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
+            <FlatList data={tickets} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+              <Card style={styles.card} mode="elevated">
+                <Card.Content>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{item.category}</Text>
+                    <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>
+                      {item.status.replace('_', ' ')}
+                    </Chip>
+                  </View>
+                  <Text style={styles.noticeBody}>{item.description}</Text>
+                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                </Card.Content>
+              </Card>
+            )} />
+          </>
+        )}
+
+        {tab === 'amenities' && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="calendar-check" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Book an Amenity</Text>
+            </View>
+            <Button mode="outlined" onPress={() => setShowDatePicker(true)} icon="calendar" textColor={PRIMARY} style={[styles.input, { borderColor: '#d9d0ee' }]}>
+              {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
+            </Button>
+            {showDatePicker && (
+              <DateTimePicker value={bookingDate ? new Date(bookingDate) : new Date()} mode="date" display="default" minimumDate={new Date()} onChange={onDateChange} />
+            )}
+            {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
+            {amenities.map((amenity) => (
+              <Card key={amenity.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+                <Card.Content>
+                  <Text style={styles.visitorName}>{amenity.name}</Text>
+                  <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
+                  <View style={styles.slotWrap}>
+                    {amenity.slots.map((slot) => (
+                      <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip} textStyle={{ fontSize: 12 }}>{slot}</Chip>
+                    ))}
+                  </View>
+                </Card.Content>
+              </Card>
+            ))}
+
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>My Bookings</Text>
+            </View>
+            {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
+            <FlatList data={myBookings} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+              <Card style={styles.card} mode="elevated">
+                <Card.Content>
+                  <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
+                  <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
+                </Card.Content>
+                <Divider style={{ marginTop: 6 }} />
+                <Card.Actions><Button compact textColor="#c62828" onPress={() => cancelMyBooking(item.id)}>Cancel</Button></Card.Actions>
+              </Card>
+            )} />
+          </>
+        )}
+
+        {tab === 'staff' && (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="account-hard-hat" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Staff & Service Directory</Text>
+            </View>
+            {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
+            {staff.map((s) => (
+              <Card key={s.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+                <Card.Content>
+                  <View style={styles.rowWithImage}>
+                    {s.photo_url ? (
+                      <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
+                    ) : (
+                      <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
+                    )}
+                    <View>
+                      <Text style={styles.visitorName}>{s.name}</Text>
+                      <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+                    </View>
+                  </View>
+                </Card.Content>
+              </Card>
+            ))}
+          </>
+        )}
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-  tabs: { marginBottom: 12 },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 8 },
-  empty: { color: '#888', fontStyle: 'italic' },
-  card: { marginBottom: 12 },
-  visitorName: { fontSize: 16, fontWeight: '600' },
-  visitorType: { color: '#666', textTransform: 'capitalize' },
-  historyRow: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  historyRowImg: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
+  screen: { flex: 1, backgroundColor: '#f7f5fb' },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#ece7f5',
+  },
+  eyebrow: { fontSize: 11, fontWeight: '700', color: PRIMARY, letterSpacing: 1.5, marginBottom: 2 },
+  title: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
+  logoutBtn: { backgroundColor: '#f3effa', margin: 0 },
+  tabBar: { backgroundColor: '#fff', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
+  tabChip: { backgroundColor: '#f3effa' },
+  container: { padding: 20, paddingBottom: 12 },
+  sectionCard: { marginBottom: 24, borderRadius: 16, backgroundColor: '#fff' },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
+  sectionIcon: { backgroundColor: '#ede7f6' },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1e1b2e', flex: 1 },
+  countBadge: { fontSize: 12, fontWeight: '700', color: PRIMARY, backgroundColor: '#ede7f6', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
+  input: { marginBottom: 14, backgroundColor: '#fff' },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  previewImage: { width: 60, height: 60, borderRadius: 12 },
+  photoPlaceholder: { width: 60, height: 60, borderRadius: 12, backgroundColor: '#f3effa', borderWidth: 1, borderColor: '#e2ddef', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  photoButton: { flex: 1, borderColor: '#d9d0ee' },
+  submitButton: { borderRadius: 10, marginTop: 4 },
+  chipSelectRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  card: { borderRadius: 14, backgroundColor: '#fff' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  guestInput: { flex: 1 },
-  guestBtn: { justifyContent: 'center' },
-  noticeBody: { color: '#444', marginTop: 4 },
-  meta: { color: '#888', fontSize: 12, marginTop: 6 },
+  visitorName: { fontSize: 16, fontWeight: '700', color: '#1e1b2e' },
+  meta: { color: '#6b6480', marginTop: 3, fontSize: 13 },
+  metaFaint: { color: '#a49cbe', marginTop: 4, fontSize: 12 },
+  thumb: { width: 52, height: 52, borderRadius: 26 },
+  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
+  thumbSmall: { width: 40, height: 40, borderRadius: 20 },
+  thumbPlaceholderSmall: { width: 40, height: 40, borderRadius: 20, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbInitialSmall: { color: 'white', fontSize: 15, fontWeight: '700' },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
+  historyName: { fontSize: 14, fontWeight: '600', color: '#1e1b2e' },
+  noticeBody: { color: '#4a4560', marginTop: 4, lineHeight: 20 },
   pollOptionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  pollOptionText: { flex: 1 },
-  votedLabel: { color: '#2e7d32', marginTop: 8, fontWeight: '600' },
-  input: { marginBottom: 12 },
+  pollOptionText: { flex: 1, color: '#4a4560' },
+  votedLabel: { color: '#2e7d32', marginTop: 10, fontWeight: '600', fontSize: 13 },
   slotWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  slotChip: { marginBottom: 4 },
-  previewImage: { width: 80, height: 80, borderRadius: 8, marginBottom: 14 },
-  thumb: { width: 56, height: 56, borderRadius: 28 },
-  thumbPlaceholder: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
-  thumbInitial: { color: 'white', fontSize: 20, fontWeight: '700' },
-  thumbSmall: { width: 36, height: 36, borderRadius: 18 },
-  thumbPlaceholderSmall: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
-  thumbInitialSmall: { color: 'white', fontSize: 14, fontWeight: '700' },
+  slotChip: { marginBottom: 4, backgroundColor: '#f3effa' },
+  emptyState: { alignItems: 'center', paddingVertical: 24, gap: 10 },
+  empty: { color: '#8a82a6', fontSize: 14 },
 });

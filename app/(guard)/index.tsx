@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, FlatList, Alert, Image } from 'react-native';
-import { TextInput, Button, SegmentedButtons, Card, Chip } from 'react-native-paper';
+import { TextInput, Button, SegmentedButtons, Card, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
@@ -21,11 +21,14 @@ type VisitorRequest = {
 type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 
+const PRIMARY = '#673AB7';
+
 export default function GuardHome() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [flatNumber, setFlatNumber] = useState('');
   const [visitorType, setVisitorType] = useState('guest');
+  const [customVisitorType, setCustomVisitorType] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -37,6 +40,7 @@ export default function GuardHome() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchFlat, setSearchFlat] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -81,12 +85,7 @@ export default function GuardHome() {
   }, []);
 
   const pickPhoto = async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.5,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.5, allowsEditing: true, aspect: [1, 1] });
     if (!result.canceled) setPhotoUri(result.assets[0].uri);
   };
 
@@ -114,6 +113,10 @@ export default function GuardHome() {
       Alert.alert('Missing info', 'Name and flat number are required');
       return;
     }
+    if (visitorType === 'other' && !customVisitorType.trim()) {
+      Alert.alert('Missing info', 'Please specify the visitor type');
+      return;
+    }
     setLoading(true);
     try {
       const { data: flat, error: flatError } = await supabase
@@ -131,9 +134,11 @@ export default function GuardHome() {
       let photoUrl: string | null = null;
       if (photoUri) photoUrl = await uploadPhoto(photoUri);
 
+      const finalVisitorType = visitorType === 'other' ? customVisitorType.trim() : visitorType;
+
       const { data: visitor, error: visitorError } = await supabase
         .from('visitors')
-        .insert({ name, phone, visitor_type: visitorType, photo_url: photoUrl })
+        .insert({ name, phone, visitor_type: finalVisitorType, photo_url: photoUrl })
         .select()
         .single();
 
@@ -160,6 +165,7 @@ export default function GuardHome() {
       setPhone('');
       setFlatNumber('');
       setPhotoUri(null);
+      setCustomVisitorType('');
     } catch (err) {
       Alert.alert('Something went wrong', 'Please check your connection and try again');
     } finally {
@@ -199,7 +205,14 @@ export default function GuardHome() {
     return '#ef6c00';
   };
 
-  // Apply filters
+  const statusBg = (status: string) => {
+    if (status === 'approved') return '#e8f5e9';
+    if (status === 'denied') return '#fdecea';
+    return '#fff3e0';
+  };
+
+  const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterType !== 'all' ? 1 : 0) + (filterTower !== 'all' ? 1 : 0);
+
   let filtered = requests;
   if (filterStatus !== 'all') filtered = filtered.filter((r) => r.status === filterStatus);
   if (filterType !== 'all') filtered = filtered.filter((r) => r.visitors?.visitor_type === filterType);
@@ -211,144 +224,320 @@ export default function GuardHome() {
     return sortOrder === 'newest' ? -diff : diff;
   });
 
+  const showActions = (item: VisitorRequest) => 
+    (item.status === 'approved' && !item.entry_time) || (item.entry_time && !item.exit_time);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Guard Dashboard</Text>
-
-      <Text style={styles.section}>Register Visitor</Text>
-      <TextInput label="Visitor Name" value={name} onChangeText={setName} style={styles.input} />
-      <TextInput label="Phone (optional)" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" />
-      <TextInput label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} />
-      <SegmentedButtons
-        value={visitorType}
-        onValueChange={setVisitorType}
-        style={styles.input}
-        buttons={[
-          { value: 'guest', label: 'Guest' },
-          { value: 'delivery', label: 'Delivery' },
-          { value: 'cab', label: 'Cab' },
-          { value: 'service', label: 'Service' },
-        ]}
-      />
-      <Button mode="outlined" onPress={pickPhoto} style={styles.input}>
-        {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
-      </Button>
-      {photoUri && <Image source={{ uri: photoUri }} style={styles.previewImage} />}
-      <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} style={styles.input}>
-        Send Approval Request
-      </Button>
-
-      <Text style={styles.section}>Live Requests</Text>
-
-      <TextInput
-        label="Search by flat number"
-        value={searchFlat}
-        onChangeText={setSearchFlat}
-        style={styles.input}
-        left={<TextInput.Icon icon="magnify" />}
-      />
-
-      <Text style={styles.filterLabel}>Status</Text>
-      <View style={styles.filterRow}>
-        {['all', 'pending', 'approved', 'denied'].map((f) => (
-          <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={styles.filterChip}>{f}</Chip>
-        ))}
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.eyebrow}>PORTL</Text>
+          <Text style={styles.title}>Guard Dashboard</Text>
+        </View>
+        <IconButton icon="logout" size={22} iconColor={PRIMARY} onPress={handleLogout} style={styles.logoutBtn} />
       </View>
 
-      <Text style={styles.filterLabel}>Visitor Type</Text>
-      <View style={styles.filterRow}>
-        {['all', 'guest', 'delivery', 'cab', 'service'].map((f) => (
-          <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={styles.filterChip}>{f}</Chip>
-        ))}
-      </View>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <Card style={styles.sectionCard} mode="elevated">
+          <Card.Content>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={PRIMARY} />
+              <Text style={styles.sectionTitle}>Register Visitor</Text>
+            </View>
 
-      {towers.length > 0 && (
-        <>
-          <Text style={styles.filterLabel}>Tower</Text>
-          <View style={styles.filterRow}>
-            <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={styles.filterChip}>all</Chip>
-            {towers.map((t) => (
-              <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={styles.filterChip}>{t.name}</Chip>
-            ))}
-          </View>
-        </>
-      )}
+            <TextInput mode="outlined" label="Visitor Name" value={name} onChangeText={setName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+            <TextInput mode="outlined" label="Phone (optional)" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+            <TextInput mode="outlined" label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
 
-      <Button
-        compact
-        mode="text"
-        onPress={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
-        style={{ alignSelf: 'flex-start', marginBottom: 8 }}
-      >
-        Sort: {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
-      </Button>
+            <Text style={styles.fieldLabel}>Visitor Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
+              <SegmentedButtons
+                value={visitorType}
+                onValueChange={setVisitorType}
+                style={styles.segmentedButtonsContainer}
+                theme={{ colors: { secondaryContainer: '#ede7f6', onSecondaryContainer: PRIMARY } }}
+                buttons={[
+                  { value: 'guest', label: 'Guest', icon: 'account', showSelectedCheck: false },
+                  { value: 'delivery', label: 'Delivery', icon: 'package-variant', showSelectedCheck: false },
+                  { value: 'cab', label: 'Cab', icon: 'car', showSelectedCheck: false },
+                  { value: 'service', label: 'Service', icon: 'wrench', showSelectedCheck: false },
+                  { value: 'other', label: 'Other', icon: 'dots-horizontal', showSelectedCheck: false },
+                ]}
+              />
+            </ScrollView>
 
-      {filtered.length === 0 && <Text style={styles.empty}>No matching requests</Text>}
+            {visitorType === 'other' && (
+              <TextInput mode="outlined" label="Specify visitor type" value={customVisitorType} onChangeText={setCustomVisitorType} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+            )}
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        scrollEnabled={false}
-        renderItem={({ item }) => (
-          <Card style={styles.card}>
-            <Card.Content>
-              <View style={styles.rowWithImage}>
-                {item.visitors?.photo_url ? (
-                  <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-                ) : (
-                  <View style={styles.thumbPlaceholder}>
-                    <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <View style={styles.row}>
-                    <Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                    <Chip textStyle={{ color: 'white' }} style={{ backgroundColor: statusColor(item.status) }}>
-                      {item.pre_approved ? 'pre-approved' : item.status}
-                    </Chip>
-                  </View>
-                  <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-                  <Text style={styles.meta}>{new Date(item.created_at).toLocaleString()}</Text>
-                  {item.entry_time && <Text style={styles.meta}>Entered: {new Date(item.entry_time).toLocaleTimeString()}</Text>}
-                  {item.exit_time && <Text style={styles.meta}>Exited: {new Date(item.exit_time).toLocaleTimeString()}</Text>}
+            <View style={styles.photoRow}>
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.previewImage} />
+              ) : (
+                <View style={styles.photoPlaceholder}>
+                  <Avatar.Icon size={36} icon="camera" style={{ backgroundColor: 'transparent' }} color="#b3a6d6" />
                 </View>
+              )}
+              <Button mode="outlined" onPress={pickPhoto} icon="camera" textColor={PRIMARY} style={styles.photoButton}>
+                {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
+              </Button>
+            </View>
+
+            <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+              Send Approval Request
+            </Button>
+          </Card.Content>
+        </Card>
+
+        <View style={styles.sectionHeaderRow}>
+          <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={PRIMARY} />
+          <Text style={styles.sectionTitle}>Live Requests</Text>
+          <Text style={styles.countBadge}>{filtered.length}</Text>
+        </View>
+
+        <TextInput
+          mode="outlined"
+          label="Search by flat number"
+          value={searchFlat}
+          onChangeText={setSearchFlat}
+          style={styles.input}
+          outlineColor="#e2ddef"
+          activeOutlineColor={PRIMARY}
+          left={<TextInput.Icon icon="magnify" color="#9a8fc2" />}
+          right={searchFlat ? <TextInput.Icon icon="close" onPress={() => setSearchFlat('')} /> : undefined}
+        />
+
+        <View style={styles.toolbarRow}>
+          <Chip
+            icon="filter-variant"
+            selected={filtersOpen}
+            onPress={() => setFiltersOpen((v) => !v)}
+            style={styles.toolbarChip}
+            selectedColor={PRIMARY}
+          >
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </Chip>
+          <Button
+            compact
+            mode="text"
+            icon={sortOrder === 'newest' ? 'sort-clock-descending' : 'sort-clock-ascending'}
+            textColor={PRIMARY}
+            onPress={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+          >
+            {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+          </Button>
+        </View>
+
+        {filtersOpen && (
+          <Card style={styles.filterCard} mode="outlined">
+            <Card.Content>
+              <Text style={styles.filterLabel}>Status</Text>
+              <View style={styles.filterRow}>
+                {['all', 'pending', 'approved', 'denied'].map((f) => (
+                  <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={styles.filterChip} selectedColor={PRIMARY}>
+                    {f}
+                  </Chip>
+                ))}
               </View>
+
+              <Text style={styles.filterLabel}>Visitor Type</Text>
+              <View style={styles.filterRow}>
+                {['all', 'guest', 'delivery', 'cab', 'service', 'other'].map((f) => (
+                  <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={styles.filterChip} selectedColor={PRIMARY}>
+                    {f}
+                  </Chip>
+                ))}
+              </View>
+
+              {towers.length > 0 && (
+                <>
+                  <Text style={styles.filterLabel}>Tower</Text>
+                  <View style={styles.filterRow}>
+                    <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={styles.filterChip} selectedColor={PRIMARY}>
+                      all
+                    </Chip>
+                    {towers.map((t) => (
+                      <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={styles.filterChip} selectedColor={PRIMARY}>
+                        {t.name}
+                      </Chip>
+                    ))}
+                  </View>
+                </>
+              )}
             </Card.Content>
-            {item.status === 'approved' && !item.entry_time && (
-              <Card.Actions>
-                <Button mode="contained" loading={actionLoadingId === item.id} disabled={actionLoadingId === item.id} onPress={() => markEntry(item.id)}>Mark Entry</Button>
-              </Card.Actions>
-            )}
-            {item.entry_time && !item.exit_time && (
-              <Card.Actions>
-                <Button mode="outlined" loading={actionLoadingId === item.id} disabled={actionLoadingId === item.id} onPress={() => markExit(item.id)}>Mark Exit</Button>
-              </Card.Actions>
-            )}
           </Card>
         )}
-      />
 
-      <Button mode="outlined" onPress={handleLogout} style={{ marginTop: 20 }}>Log Out</Button>
-    </ScrollView>
+        {filtered.length === 0 && (
+          <View style={styles.emptyState}>
+            <Avatar.Icon size={48} icon="clipboard-search-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+            <Text style={styles.empty}>No matching requests</Text>
+          </View>
+        )}
+
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          scrollEnabled={false}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          renderItem={({ item }) => (
+            <Card style={styles.card} mode="elevated">
+              <Card.Content>
+                <View style={styles.rowWithImage}>
+                  {item.visitors?.photo_url ? (
+                    <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                  ) : (
+                    <View style={styles.thumbPlaceholder}>
+                      <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.row}>
+                      <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
+                      <Chip
+                        compact
+                        textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 12 }}
+                        style={{ backgroundColor: statusBg(item.status) }}
+                      >
+                        {item.pre_approved ? 'pre-approved' : item.status}
+                      </Chip>
+                    </View>
+                    <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                    {(item.entry_time || item.exit_time) && (
+                      <View style={styles.timeRow}>
+                        {item.entry_time && (
+                          <View style={styles.timeChip}>
+                            <Text style={styles.timeChipText}>In {new Date(item.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                          </View>
+                        )}
+                        {item.exit_time && (
+                          <View style={styles.timeChip}>
+                            <Text style={styles.timeChipText}>Out {new Date(item.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </Card.Content>
+              {showActions(item) && <Divider style={{ marginTop: 8 }} />}
+              {showActions(item) && (
+                <Card.Actions>
+                  {item.status === 'approved' && !item.entry_time && (
+                    <Button
+                      mode="contained"
+                      icon="login"
+                      buttonColor={PRIMARY}
+                      loading={actionLoadingId === item.id}
+                      disabled={actionLoadingId === item.id}
+                      onPress={() => markEntry(item.id)}
+                    >
+                      Mark Entry
+                    </Button>
+                  )}
+                  {item.entry_time && !item.exit_time && (
+                    <Button
+                      mode="outlined"
+                      icon="logout"
+                      textColor={PRIMARY}
+                      loading={actionLoadingId === item.id}
+                      disabled={actionLoadingId === item.id}
+                      onPress={() => markExit(item.id)}
+                    >
+                      Mark Exit
+                    </Button>
+                  )}
+                </Card.Actions>
+              )}
+            </Card>
+          )}
+        />
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, paddingTop: 60 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 12 },
-  section: { fontSize: 16, fontWeight: '600', marginTop: 20, marginBottom: 10 },
-  input: { marginBottom: 14 },
-  card: { marginBottom: 12 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  screen: { flex: 1, backgroundColor: '#f7f5fb' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 56,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ece7f5',
+  },
+  eyebrow: { fontSize: 11, fontWeight: '700', color: PRIMARY, letterSpacing: 1.5, marginBottom: 2 },
+  title: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
+  logoutBtn: { backgroundColor: '#f3effa', margin: 0 },
+  container: { padding: 20, paddingBottom: 12 },
+
+  sectionCard: { marginBottom: 24, borderRadius: 16, backgroundColor: '#fff' },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
+  sectionIcon: { backgroundColor: '#ede7f6' },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1e1b2e', flex: 1 },
+  countBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: PRIMARY,
+    backgroundColor: '#ede7f6',
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 6, marginTop: 2 },
+  input: { marginBottom: 14, backgroundColor: '#fff' },
+  
+  // Custom segment wrapper layout fixes
+  segmentedScroll: { marginBottom: 14 },
+  segmentedButtonsContainer: { minWidth: 420 },
+
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  previewImage: { width: 64, height: 64, borderRadius: 12 },
+  photoPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 12,
+    backgroundColor: '#f3effa',
+    borderWidth: 1,
+    borderColor: '#e2ddef',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoButton: { flex: 1, borderColor: '#d9d0ee' },
+  submitButton: { borderRadius: 10, marginTop: 4 },
+
+  toolbarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  toolbarChip: { backgroundColor: '#fff' },
+  filterCard: { marginBottom: 14, borderRadius: 14, borderColor: '#e2ddef', backgroundColor: '#fff' },
+
+  card: { borderRadius: 14, backgroundColor: '#fff' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  visitorName: { fontSize: 16, fontWeight: '600' },
-  meta: { color: '#666', marginTop: 4 },
-  previewImage: { width: 80, height: 80, borderRadius: 8, marginBottom: 14 },
-  thumb: { width: 56, height: 56, borderRadius: 28 },
-  thumbPlaceholder: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#673AB7', justifyContent: 'center', alignItems: 'center' },
-  thumbInitial: { color: 'white', fontSize: 20, fontWeight: '700' },
-  filterLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, marginTop: 4 },
-  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
-  filterChip: { marginBottom: 4 },
-  empty: { color: '#888', fontStyle: 'italic', marginBottom: 12 },
+  visitorName: { fontSize: 16, fontWeight: '700', color: '#1e1b2e', flexShrink: 1 },
+  meta: { color: '#6b6480', marginTop: 3, fontSize: 13 },
+  metaFaint: { color: '#a49cbe', marginTop: 2, fontSize: 12 },
+  thumb: { width: 52, height: 52, borderRadius: 26 },
+  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
+
+  timeRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  timeChip: { backgroundColor: '#f3effa', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  timeChipText: { fontSize: 11, fontWeight: '600', color: PRIMARY },
+
+  filterLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 6, marginTop: 6 },
+  filterRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
+  filterChip: { marginBottom: 4, backgroundColor: '#faf9fc' },
+
+  emptyState: { alignItems: 'center', paddingVertical: 32, gap: 10 },
+  empty: { color: '#8a82a6', fontSize: 14 },
 });
