@@ -21,7 +21,9 @@ type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
-type Profile = { id: string; full_name: string; role: string; flat_id: string | null };
+
+type Profile = { id: string; full_name: string; role: string; flat_id: string | null; approved: boolean };
+
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
 
 export default function AdminHome() {
@@ -216,6 +218,27 @@ export default function AdminHome() {
   const deleteStaff = async (id: string) => {
     await supabase.from('staff_directory').delete().eq('id', id);
   };
+  const approveResident = async (id: string) => {
+  const { error } = await supabase.from('profiles').update({ approved: true }).eq('id', id);
+  if (error) Alert.alert('Error', error.message);
+  else fetchResidents();
+};
+
+const rejectResident = async (id: string) => {
+  Alert.alert('Reject request', 'This will permanently delete this signup request. Continue?', [
+    { text: 'Cancel', style: 'cancel' },
+    {
+      text: 'Reject',
+      style: 'destructive',
+      onPress: async () => {
+        await supabase.auth.admin?.deleteUser?.(id).catch(() => {});
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+        else fetchResidents();
+      },
+    },
+  ]);
+};
 
   const today = new Date().toDateString();
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
@@ -396,23 +419,44 @@ export default function AdminHome() {
           )}
 
           {societySubTab === 'residents' && (
-            <View>
-              <Text style={styles.section}>All Residents ({residents.length})</Text>
-              {residents.map((r) => (
-                <Card key={r.id} style={styles.card}><Card.Content>
-                  <View style={styles.rowWithImage}>
-                    <View style={styles.thumbPlaceholder}>
-                      <Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.visitorName}>{r.full_name}</Text>
-                      <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
-                    </View>
-                  </View>
-                </Card.Content></Card>
-              ))}
-            </View>
-          )}
+  <View>
+    <Text style={styles.section}>Pending Approval ({residents.filter((r) => !r.approved).length})</Text>
+    {residents.filter((r) => !r.approved).length === 0 && <Text style={styles.empty}>No pending requests</Text>}
+    {residents.filter((r) => !r.approved).map((r) => (
+      <Card key={r.id} style={[styles.card, { borderColor: '#ef6c00', borderWidth: 1 }]}><Card.Content>
+        <View style={styles.rowWithImage}>
+          <View style={[styles.thumbPlaceholder, { backgroundColor: '#ef6c00' }]}>
+            <Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+          </View>
+          <View>
+            <Text style={styles.visitorName}>{r.full_name}</Text>
+            <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+          </View>
+        </View>
+      </Card.Content>
+      <Card.Actions>
+        <Button compact onPress={() => rejectResident(r.id)}>Reject</Button>
+        <Button compact mode="contained" onPress={() => approveResident(r.id)}>Approve</Button>
+      </Card.Actions>
+      </Card>
+    ))}
+
+    <Text style={styles.section}>All Residents ({residents.filter((r) => r.approved).length})</Text>
+    {residents.filter((r) => r.approved).map((r) => (
+      <Card key={r.id} style={styles.card}><Card.Content>
+        <View style={styles.rowWithImage}>
+          <View style={styles.thumbPlaceholder}>
+            <Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+          </View>
+          <View>
+            <Text style={styles.visitorName}>{r.full_name}</Text>
+            <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+          </View>
+        </View>
+      </Card.Content></Card>
+    ))}
+  </View>
+)}
 
           {societySubTab === 'staff' && (
             <View>

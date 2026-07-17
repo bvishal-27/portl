@@ -21,9 +21,10 @@ export default function Login() {
       setLoading(false);
       return;
     }
+
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, approved')
       .eq('id', data.user.id)
       .single();
 
@@ -33,27 +34,34 @@ export default function Login() {
       return;
     }
 
-   setSession(data.user.id, profile.role);
-
-if (Device.isDevice) {
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus === 'granted') {
-    try {
-      const tokenData = await Notifications.getExpoPushTokenAsync();
-      await supabase.from('profiles').update({ push_token: tokenData.data }).eq('id', data.user.id);
-    } catch (err) {
-      console.log('Push token error:', err);
+    if (!profile.approved) {
+      Alert.alert('Pending Approval', 'Your account is still awaiting admin approval. Please check back later.');
+      await supabase.auth.signOut();
+      setLoading(false);
+      return;
     }
-  }
-}
 
-setLoading(false);
-router.replace('/');
+    setSession(data.user.id, profile.role);
+
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus === 'granted') {
+        try {
+          const tokenData = await Notifications.getExpoPushTokenAsync();
+          await supabase.from('profiles').update({ push_token: tokenData.data }).eq('id', data.user.id);
+        } catch (err) {
+          console.log('Push token error:', err);
+        }
+      }
+    }
+
+    setLoading(false);
+    router.replace('/');
   };
 
   return (
@@ -61,7 +69,10 @@ router.replace('/');
       <Text variant="headlineMedium" style={styles.title}>Portl Login</Text>
       <TextInput label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" style={styles.input} />
       <TextInput label="Password" value={password} onChangeText={setPassword} secureTextEntry style={styles.input} />
-      <Button mode="contained" onPress={handleLogin} loading={loading}>Log In</Button>
+      <Button mode="contained" onPress={handleLogin} loading={loading} style={styles.input}>Log In</Button>
+      <Button mode="text" onPress={() => router.push('/(auth)/signup')}>
+        New resident? Request access
+      </Button>
     </View>
   );
 }
