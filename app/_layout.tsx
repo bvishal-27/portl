@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PaperProvider,MD3LightTheme } from 'react-native-paper';
+import { PaperProvider, MD3LightTheme } from 'react-native-paper';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 
@@ -12,7 +13,6 @@ const queryClient = new QueryClient();
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
@@ -21,7 +21,9 @@ Notifications.setNotificationHandler({
 });
 
 async function registerForPushNotifications(userId: string) {
-  if (!Device.isDevice) return;
+  if (!Device.isDevice) {
+    return;
+  }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
@@ -31,7 +33,12 @@ async function registerForPushNotifications(userId: string) {
     finalStatus = status;
   }
 
-  if (finalStatus !== 'granted') return;
+  if (finalStatus !== 'granted') {
+    console.log(
+      'Notification permission not granted - go to phone Settings > Apps > portl > Notifications and enable manually'
+    );
+    return;
+  }
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
@@ -41,9 +48,27 @@ async function registerForPushNotifications(userId: string) {
   }
 
   try {
-    const tokenData = await Notifications.getExpoPushTokenAsync();
+    // projectId is required in dev/production builds (SDK 50+)
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      console.log('EAS projectId not found - check app.json extra.eas.projectId');
+      return;
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenData.data;
-    await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ push_token: token })
+      .eq('id', userId);
+
+    if (error) {
+      console.log('Failed to save push token to Supabase:', error.message);
+    }
   } catch (err) {
     console.log('Push token registration failed:', err);
   }
@@ -62,6 +87,7 @@ export default function RootLayout() {
           .select('role')
           .eq('id', data.session.user.id)
           .single();
+
         if (profile) {
           setSession(data.session.user.id, profile.role);
           registerForPushNotifications(data.session.user.id);
@@ -70,6 +96,22 @@ export default function RootLayout() {
       setReady(true);
     };
     init();
+  }, []);
+
+  // Optional but recommended: listen for notifications while app is foregrounded/tapped
+  useEffect(() => {
+    const receivedSub = Notifications.addNotificationReceivedListener(() => {
+      // handle foreground notification display here if needed
+    });
+
+    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      // handle navigation here if needed, e.g. router.push(...)
+    });
+
+    return () => {
+      receivedSub.remove();
+      responseSub.remove();
+    };
   }, []);
 
   if (!ready) {

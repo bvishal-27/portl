@@ -106,10 +106,22 @@ export default function ResidentHome() {
     if (data) setStaff(data);
   };
 
+  // FIXED: channels array now lives outside the async function so the
+  // useEffect cleanup can actually reach it and unsubscribe properly.
   useEffect(() => {
+    let cancelled = false;
+    let channels: ReturnType<typeof supabase.channel>[] = [];
+
     const init = async () => {
+      // IMPORTANT: clear any channels left over from a previous mount / Fast Refresh.
+      // The supabase client is a singleton - its internal channel list survives
+      // hot reloads even though React component state resets, so without this,
+      // re-creating a channel with the same topic name throws
+      // "cannot add postgres_changes callbacks ... after subscribe()".
+      await supabase.removeAllChannels();
+
       const { data: profile } = await supabase.from('profiles').select('flat_id').eq('id', userId).single();
-      if (!profile?.flat_id) return;
+      if (!profile?.flat_id || cancelled) return;
       setFlatId(profile.flat_id);
       fetchRequests(profile.flat_id);
       fetchNotices();
@@ -120,7 +132,9 @@ export default function ResidentHome() {
       fetchMyBookings();
       fetchStaff();
 
-      const channels = [
+      if (cancelled) return; // guard in case unmounted while awaiting above
+
+      channels = [
         supabase.channel(`visitor_requests_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests', filter: `flat_id=eq.${profile.flat_id}` }, () => fetchRequests(profile.flat_id)).subscribe(),
         supabase.channel(`notices_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, () => fetchNotices()).subscribe(),
         supabase.channel(`polls_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, () => fetchPolls()).subscribe(),
@@ -130,9 +144,16 @@ export default function ResidentHome() {
         supabase.channel(`bookings_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings()).subscribe(),
         supabase.channel(`staff_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, () => fetchStaff()).subscribe(),
       ];
-      return () => channels.forEach((c) => supabase.removeChannel(c));
     };
+
     init();
+
+    // This is the actual useEffect cleanup now - it WILL run on unmount/re-run.
+    return () => {
+      cancelled = true;
+      channels.forEach((c) => supabase.removeChannel(c));
+      supabase.removeAllChannels();
+    };
   }, [userId]);
 
   const respondToRequest = async (requestId: string, status: 'approved' | 'denied') => {
