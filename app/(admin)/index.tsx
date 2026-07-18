@@ -66,6 +66,7 @@ const [allPolls, setAllPolls] = useState<{ id: string; question: string; created
   const [staffType, setStaffType] = useState('plumber');
   const [staffPhone, setStaffPhone] = useState('');
   const [staffPhotoUri, setStaffPhotoUri] = useState<string | null>(null);
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -284,6 +285,25 @@ const deletePoll = async (id: string) => {
       },
     ]);
   };
+  const deleteResident = async (id: string, name: string) => {
+  Alert.alert('Remove Resident', `This will permanently remove ${name}'s access. Continue?`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Remove', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('profiles').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+      else fetchResidents();
+    }},
+  ]);
+};
+
+const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
+  const { error } = await supabase.from('profiles').update({ flat_id: newFlatId }).eq('id', residentId);
+  if (error) Alert.alert('Error', error.message);
+  else {
+    Alert.alert('Updated', 'Resident reassigned to new flat');
+    fetchResidents();
+  }
+};
 
   const today = new Date().toDateString();
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
@@ -587,16 +607,43 @@ const deletePoll = async (id: string) => {
                   <Text style={styles.sectionTitle}>All Residents ({approvedResidents.length})</Text>
                 </View>
                 {approvedResidents.map((r) => (
-                  <Card key={r.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-                    <View style={styles.rowWithImage}>
-                      <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                      <View>
-                        <Text style={styles.visitorName}>{r.full_name}</Text>
-                        <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
-                      </View>
-                    </View>
-                  </Card.Content></Card>
-                ))}
+  <Card key={r.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+    <Card.Content>
+      <View style={styles.rowWithImage}>
+        <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+        <View>
+          <Text style={styles.visitorName}>{r.full_name}</Text>
+          <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+        </View>
+      </View>
+      {reassigningId === r.id && (
+        <View style={{ marginTop: 12 }}>
+          <Text style={styles.fieldLabel}>Move to flat:</Text>
+          <View style={styles.filterRow}>
+            {flats.map((f) => (
+              <Chip
+                key={f.id}
+                selected={r.flat_id === f.id}
+                onPress={() => { reassignResidentFlat(r.id, f.id); setReassigningId(null); }}
+                style={styles.filterChip}
+                selectedColor={PRIMARY}
+              >
+                {f.flat_number}
+              </Chip>
+            ))}
+          </View>
+        </View>
+      )}
+    </Card.Content>
+    <Divider style={{ marginTop: 8 }} />
+    <Card.Actions>
+      <Button compact textColor={PRIMARY} onPress={() => setReassigningId(reassigningId === r.id ? null : r.id)}>
+        {reassigningId === r.id ? 'Cancel' : 'Reassign Flat'}
+      </Button>
+      <Button compact textColor="#c62828" onPress={() => deleteResident(r.id, r.full_name)}>Remove</Button>
+    </Card.Actions>
+  </Card>
+))}
               </View>
             )}
 
