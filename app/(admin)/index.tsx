@@ -296,6 +296,21 @@ const deletePoll = async (id: string) => {
   ]);
 };
 
+const deleteVisitorRequest = async (id: string, name: string) => {
+  Alert.alert('Delete Visitor Record', `Remove this visitor log entry for ${name}?`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('visitor_requests').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+    }},
+  ]);
+};
+
+const overrideVisitorStatus = async (id: string, status: string) => {
+  const { error } = await supabase.from('visitor_requests').update({ status }).eq('id', id);
+  if (error) Alert.alert('Error', error.message);
+};
+
 const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
   const { error } = await supabase.from('profiles').update({ flat_id: newFlatId }).eq('id', residentId);
   if (error) Alert.alert('Error', error.message);
@@ -370,27 +385,39 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
                 <Text style={styles.empty}>No visitor records</Text>
               </View>
             )}
-            <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated"><Card.Content>
-                <View style={styles.rowWithImage}>
-                  {item.visitors?.photo_url ? (
-                    <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-                  ) : (
-                    <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.row}>
-                      <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
-                      <Chip compact textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: statusBg(item.status) }}>
-                        {item.pre_approved ? 'pre-approved' : item.status}
-                      </Chip>
-                    </View>
-                    <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                  </View>
-                </View>
-              </Card.Content></Card>
-            )} />
+           <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+  <Card style={styles.card} mode="elevated">
+    <Card.Content>
+      <View style={styles.rowWithImage}>
+        {item.visitors?.photo_url ? (
+          <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+        ) : (
+          <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+        )}
+        <View style={{ flex: 1 }}>
+          <View style={styles.row}>
+            <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
+            <Chip compact textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: statusBg(item.status) }}>
+              {item.pre_approved ? 'pre-approved' : item.status}
+            </Chip>
+          </View>
+          <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+          <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+        </View>
+      </View>
+    </Card.Content>
+    <Divider style={{ marginTop: 8 }} />
+    <Card.Actions style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+  {item.status !== 'approved' && (
+    <IconButton icon="check-circle" iconColor="#2e7d32" size={20} onPress={() => overrideVisitorStatus(item.id, 'approved')} />
+  )}
+  {item.status !== 'denied' && (
+    <IconButton icon="close-circle" iconColor="#ef6c00" size={20} onPress={() => overrideVisitorStatus(item.id, 'denied')} />
+  )}
+  <IconButton icon="delete" iconColor="#c62828" size={20} onPress={() => deleteVisitorRequest(item.id, item.visitors?.name ?? 'visitor')} />
+</Card.Actions>
+  </Card>
+)} />
           </>
         )}
 
