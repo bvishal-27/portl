@@ -47,6 +47,8 @@ export default function AdminHome() {
   const [flats, setFlats] = useState<Flat[]>([]);
   const [residents, setResidents] = useState<Profile[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [allNotices, setAllNotices] = useState<{ id: string; title: string; body: string; created_at: string }[]>([]);
+const [allPolls, setAllPolls] = useState<{ id: string; question: string; created_at: string }[]>([]);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -102,11 +104,20 @@ export default function AdminHome() {
   const fetchStaff = async () => {
     const { data } = await supabase.from('staff_directory').select('*').order('name');
     if (data) setStaff(data);
+
   };
+  const fetchAllNotices = async () => {
+  const { data } = await supabase.from('notices').select('*').order('created_at', { ascending: false });
+  if (data) setAllNotices(data);
+};
+const fetchAllPolls = async () => {
+  const { data } = await supabase.from('polls').select('id, question, created_at').order('created_at', { ascending: false });
+  if (data) setAllPolls(data);
+};
 
   useEffect(() => {
     fetchRequests(); fetchTickets(); fetchAmenities(); fetchBookings();
-    fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff();
+    fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls();
 
     const channels = [
       supabase.channel('visitor_requests_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests' }, fetchRequests).subscribe(),
@@ -117,6 +128,8 @@ export default function AdminHome() {
       supabase.channel('flats_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'flats' }, fetchFlats).subscribe(),
       supabase.channel('staff_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, fetchStaff).subscribe(),
       supabase.channel('profiles_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchResidents).subscribe(),
+    supabase.channel('notices_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchAllNotices).subscribe(),
+supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, fetchAllPolls).subscribe(),
     ];
     return () => channels.forEach((c) => supabase.removeChannel(c));
   }, []);
@@ -204,6 +217,53 @@ export default function AdminHome() {
   const deleteStaff = async (id: string) => {
     await supabase.from('staff_directory').delete().eq('id', id);
   };
+  const deleteTower = async (id: string) => {
+  Alert.alert('Delete Tower', 'This will also delete all flats in this tower. Continue?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('towers').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+      else fetchTowers();
+    }},
+  ]);
+};
+
+const deleteFlat = async (id: string) => {
+  Alert.alert('Delete Flat', 'This will remove the flat. Continue?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('flats').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+      else fetchFlats();
+    }},
+  ]);
+};
+
+const deleteAmenity = async (id: string) => {
+  Alert.alert('Delete Amenity', 'This will also cancel any bookings for it. Continue?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('amenities').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+      else fetchAmenities();
+    }},
+  ]);
+};
+
+const deleteNotice = async (id: string) => {
+  const { error } = await supabase.from('notices').delete().eq('id', id);
+  if (error) Alert.alert('Error', error.message);
+};
+
+const deletePoll = async (id: string) => {
+  Alert.alert('Delete Poll', 'This will remove the poll and its votes. Continue?', [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      const { error } = await supabase.from('polls').delete().eq('id', id);
+      if (error) Alert.alert('Error', error.message);
+    }},
+  ]);
+};
 
   const approveResident = async (id: string) => {
     const { error } = await supabase.from('profiles').update({ approved: true }).eq('id', id);
@@ -315,33 +375,64 @@ export default function AdminHome() {
         )}
 
         {tab === 'notices' && (
-          <Card style={styles.sectionCard} mode="elevated">
-            <Card.Content>
-              <View style={styles.sectionHeaderRow}>
-                <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={PRIMARY} />
-                <Text style={styles.sectionTitle}>Post a Notice</Text>
-              </View>
-              <TextInput mode="outlined" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-              <TextInput mode="outlined" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-              <Button mode="contained" onPress={handleCreateNotice} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
-            </Card.Content>
-          </Card>
-        )}
+  <View>
+    <Card style={styles.sectionCard} mode="elevated">
+      <Card.Content>
+        <View style={styles.sectionHeaderRow}>
+          <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={PRIMARY} />
+          <Text style={styles.sectionTitle}>Post a Notice</Text>
+        </View>
+        <TextInput mode="outlined" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+        <TextInput mode="outlined" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+        <Button mode="contained" onPress={handleCreateNotice} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
+      </Card.Content>
+    </Card>
+    <View style={styles.sectionHeaderRow}>
+      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={PRIMARY} />
+      <Text style={styles.sectionTitle}>Posted Notices ({allNotices.length})</Text>
+    </View>
+    {allNotices.map((n) => (
+      <Card key={n.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
+        <Text style={styles.visitorName}>{n.title}</Text>
+        <Text style={styles.meta}>{n.body}</Text>
+        <Text style={styles.metaFaint}>{new Date(n.created_at).toLocaleString()}</Text>
+      </Card.Content>
+        <Divider style={{ marginTop: 6 }} />
+        <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteNotice(n.id)}>Delete</Button></Card.Actions>
+      </Card>
+    ))}
+  </View>
+)}
 
         {tab === 'polls' && (
-          <Card style={styles.sectionCard} mode="elevated">
-            <Card.Content>
-              <View style={styles.sectionHeaderRow}>
-                <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={PRIMARY} />
-                <Text style={styles.sectionTitle}>Create a Poll</Text>
-              </View>
-              <TextInput mode="outlined" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-              <TextInput mode="outlined" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-              <TextInput mode="outlined" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-              <Button mode="contained" onPress={handleCreatePoll} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
-            </Card.Content>
-          </Card>
-        )}
+  <View>
+    <Card style={styles.sectionCard} mode="elevated">
+      <Card.Content>
+        <View style={styles.sectionHeaderRow}>
+          <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={PRIMARY} />
+          <Text style={styles.sectionTitle}>Create a Poll</Text>
+        </View>
+        <TextInput mode="outlined" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+        <TextInput mode="outlined" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+        <TextInput mode="outlined" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+        <Button mode="contained" onPress={handleCreatePoll} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
+      </Card.Content>
+    </Card>
+    <View style={styles.sectionHeaderRow}>
+      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={PRIMARY} />
+      <Text style={styles.sectionTitle}>Active Polls ({allPolls.length})</Text>
+    </View>
+    {allPolls.map((p) => (
+      <Card key={p.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
+        <Text style={styles.visitorName}>{p.question}</Text>
+        <Text style={styles.metaFaint}>{new Date(p.created_at).toLocaleString()}</Text>
+      </Card.Content>
+        <Divider style={{ marginTop: 6 }} />
+        <Card.Actions><Button compact textColor="#c62828" onPress={() => deletePoll(p.id)}>Delete</Button></Card.Actions>
+      </Card>
+    ))}
+  </View>
+)}
 
         {tab === 'tickets' && (
           <>
@@ -388,11 +479,15 @@ export default function AdminHome() {
               <Text style={styles.sectionTitle}>Amenities ({amenities.length})</Text>
             </View>
             {amenities.map((a) => (
-              <Card key={a.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-                <Text style={styles.visitorName}>{a.name}</Text>
-                <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
-              </Card.Content></Card>
-            ))}
+  <Card key={a.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+    <Card.Content>
+      <Text style={styles.visitorName}>{a.name}</Text>
+      <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
+    </Card.Content>
+    <Divider style={{ marginTop: 6 }} />
+    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteAmenity(a.id)}>Delete</Button></Card.Actions>
+  </Card>
+))}
 
             <View style={styles.sectionHeaderRow}>
               <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={PRIMARY} />
@@ -430,8 +525,12 @@ export default function AdminHome() {
               </Card>
             )}
             {societySubTab === 'towers' && towers.map((t) => (
-              <Card key={t.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content><Text style={styles.visitorName}>{t.name}</Text></Card.Content></Card>
-            ))}
+  <Card key={t.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+    <Card.Content><Text style={styles.visitorName}>{t.name}</Text></Card.Content>
+    <Divider style={{ marginTop: 6 }} />
+    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteTower(t.id)}>Delete</Button></Card.Actions>
+  </Card>
+))}
 
             {societySubTab === 'flats' && (
               <Card style={styles.sectionCard} mode="elevated">
@@ -448,11 +547,15 @@ export default function AdminHome() {
               </Card>
             )}
             {societySubTab === 'flats' && flats.map((f) => (
-              <Card key={f.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-                <Text style={styles.visitorName}>Flat {f.flat_number}</Text>
-                <Text style={styles.meta}>{towerNameFor(f.tower_id)}</Text>
-              </Card.Content></Card>
-            ))}
+  <Card key={f.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
+    <Card.Content>
+      <Text style={styles.visitorName}>Flat {f.flat_number}</Text>
+      <Text style={styles.meta}>{towerNameFor(f.tower_id)}</Text>
+    </Card.Content>
+    <Divider style={{ marginTop: 6 }} />
+    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteFlat(f.id)}>Delete</Button></Card.Actions>
+  </Card>
+))}
 
             {societySubTab === 'residents' && (
               <View>
