@@ -1073,7 +1073,7 @@ const styles = StyleSheet.create({
   },
   moreGridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  // ---- Full Profile page (about you only) ----
+  
   profileScreen: { flex: 1, backgroundColor: PAGE_BG },
   profileTopBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -1221,7 +1221,7 @@ const styles = StyleSheet.create({
   duesSnapshotSub: { fontSize: 11, color: INK_FAINT, marginTop: 3 },
   duesSnapshotDivider: { width: 1, height: 40, backgroundColor: BORDER, marginHorizontal: 14 },
 
-  // ---- Bottom Nav ----
+  
   bottomNav: {
     position: 'absolute',
     left: 0, right: 0, bottom: 0,
