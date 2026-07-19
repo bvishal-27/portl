@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image, Modal, Pressable } from 'react-native';
 import { Button, TextInput, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,7 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-// ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard) ----
+// ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard / Admin) ----
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
 const INK_FAINT = '#A6A3B3';
@@ -41,19 +41,19 @@ type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
 type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
+type MyProfile = { full_name: string; phone: string | null; flat_number: string | null; tower_name: string | null };
 
-const TABS = [
-  { key: 'visitors', label: 'Visitors', icon: 'account-group' },
-  { key: 'notices', label: 'Notices', icon: 'bullhorn' },
+// Everything reachable from the "More" grid — sections that don't get a dedicated bottom-bar slot
+const MORE_TABS = [
+  { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'polls', label: 'Polls', icon: 'poll' },
   { key: 'helpdesk', label: 'Helpdesk', icon: 'headset' },
   { key: 'amenities', label: 'Amenities', icon: 'calendar-check' },
-  { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'staff', label: 'Staff', icon: 'account-hard-hat' },
 ];
 
 export default function ResidentHome() {
-  const [tab, setTab] = useState('visitors');
+  const [tab, setTab] = useState('home');
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [flatId, setFlatId] = useState<string | null>(null);
   const [guestName, setGuestName] = useState('');
@@ -78,6 +78,12 @@ export default function ResidentHome() {
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [showAllNotices, setShowAllNotices] = useState(false);
   const [showAllPolls, setShowAllPolls] = useState(false);
+
+  // ---- bottom nav / More sheet / Profile page state ----
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [myProfile, setMyProfile] = useState<MyProfile | null>(null);
+
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -127,6 +133,22 @@ export default function ResidentHome() {
     const { data } = await supabase.from('dues').select('*').eq('flat_id', currentFlatId).order('due_date', { ascending: false });
     if (data) setDues(data);
   };
+  // Pulls name/phone/flat/tower for the Profile page. Read-only, additive.
+  const fetchMyProfile = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('full_name, phone, flats(flat_number, towers(name))')
+      .eq('id', userId)
+      .single();
+    if (data) {
+      setMyProfile({
+        full_name: (data as any).full_name,
+        phone: (data as any).phone,
+        flat_number: (data as any).flats?.flat_number ?? null,
+        tower_name: (data as any).flats?.towers?.name ?? null,
+      });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +169,7 @@ export default function ResidentHome() {
       fetchMyBookings();
       fetchStaff();
       fetchDues(profile.flat_id);
+      fetchMyProfile();
 
       if (cancelled) return;
 
@@ -313,7 +336,6 @@ export default function ResidentHome() {
   const voteCount = (optionId: string) => votes.filter((v) => v.option_id === optionId).length;
   const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
 
-  // ---- Dues derived values (these were missing before — now declared before use) ----
   const pendingDues = dues.filter((d) => d.status !== 'paid');
   const paidDues = dues.filter((d) => d.status === 'paid');
   const totalDue = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
@@ -328,35 +350,134 @@ export default function ResidentHome() {
 
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
+  const isMoreActiveTab = MORE_TABS.some((t) => t.key === tab);
+
+  // ---- Derived, display-only values for Home dashboard + Profile page (no new fetches) ----
+  const firstName = myProfile?.full_name?.split(' ')[0] ?? 'there';
+  const openTicketsCount = tickets.filter((t) => t.status !== 'resolved').length;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const latestNotice = notices[0] ?? null;
+  const nextBooking = myBookings[0] ?? null;
+
+  const goToTab = (key: string) => {
+    setTab(key);
+    setMoreOpen(false);
+    setProfileOpen(false);
+  };
+
   return (
     <View style={styles.screen}>
+      {/* ---------------- Top Header ---------------- */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>PORTL</Text>
-          <Text style={styles.title}>Resident</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>{greeting},</Text>
+          <Text style={styles.title}>{firstName}</Text>
+          {(myProfile?.tower_name || myProfile?.flat_number) && (
+            <View style={styles.flatBadge}>
+              <IconButton icon="home-city-outline" size={14} iconColor={ACCENT} style={{ margin: 0, marginRight: -4 }} />
+              <Text style={styles.flatBadgeText}>
+                {myProfile?.tower_name ? `${myProfile.tower_name} · ` : ''}
+                {myProfile?.flat_number ? `Flat ${myProfile.flat_number}` : ''}
+              </Text>
+            </View>
+          )}
         </View>
-        <IconButton icon="logout" size={22} iconColor={ACCENT} onPress={handleLogout} style={styles.logoutBtn} />
-      </View>
-
-      <View style={styles.tabBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-          {TABS.map((t) => (
-            <Chip
-              key={t.key}
-              icon={t.icon}
-              selected={tab === t.key}
-              onPress={() => setTab(t.key)}
-              style={[styles.tabChip, tab === t.key && styles.tabChipSelected]}
-              textStyle={tab === t.key ? { color: '#fff', fontWeight: '600' } : { color: INK_MUTED }}
-              selectedColor="white"
-            >
-              {t.label}
-            </Chip>
-          ))}
-        </ScrollView>
+        <Pressable onPress={() => setProfileOpen(true)} style={styles.avatarButton}>
+          <Text style={styles.avatarButtonInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {tab === 'home' && (
+          <>
+            {/* Quick stats */}
+            <View style={styles.statsRow}>
+              <Pressable style={styles.statCard} onPress={() => goToTab('dues')}>
+                <Text style={[styles.statNum, pendingDues.length > 0 && { color: DANGER }]}>{pendingDues.length}</Text>
+                <Text style={styles.statLabel}>Dues Pending</Text>
+              </Pressable>
+              <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
+                <Text style={styles.statNum}>{pendingRequests.length}</Text>
+                <Text style={styles.statLabel}>Visitor Requests</Text>
+              </Pressable>
+              <Pressable style={styles.statCard} onPress={() => goToTab('helpdesk')}>
+                <Text style={styles.statNum}>{openTicketsCount}</Text>
+                <Text style={styles.statLabel}>Open Tickets</Text>
+              </Pressable>
+            </View>
+
+            {/* Quick actions */}
+            <Text style={styles.homeSectionLabel}>Quick Actions</Text>
+            <View style={styles.quickActionsRow}>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('visitors')}>
+                <Avatar.Icon size={40} icon="account-plus" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Add Guest</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('helpdesk')}>
+                <Avatar.Icon size={40} icon="headset" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Raise Ticket</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('amenities')}>
+                <Avatar.Icon size={40} icon="calendar-check" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Book Slot</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('dues')}>
+                <Avatar.Icon size={40} icon="cash-multiple" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Pay Dues</Text>
+              </Pressable>
+            </View>
+
+            {/* Outstanding dues banner */}
+            {pendingDues.length > 0 && (
+              <Pressable style={[styles.card, styles.totalDueCard]} onPress={() => goToTab('dues')}>
+                <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.totalDueLabel}>Total Outstanding</Text>
+                    <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
+                  </View>
+                  <IconButton icon="chevron-right" size={22} iconColor="#fff" style={{ margin: 0 }} />
+                </View>
+              </Pressable>
+            )}
+
+            {/* Latest notice preview */}
+            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Latest Notice</Text>
+              <Pressable onPress={() => goToTab('notices')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+            </View>
+            {latestNotice ? (
+              <View style={[styles.card, { marginBottom: 20 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{latestNotice.title}</Text>
+                  <Text style={styles.noticeBody} numberOfLines={2}>{latestNotice.body}</Text>
+                  <Text style={styles.metaFaint}>{new Date(latestNotice.created_at).toLocaleDateString()}</Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={[styles.empty, { marginBottom: 20 }]}>No notices yet</Text>
+            )}
+
+            {/* Upcoming booking preview */}
+            {nextBooking && (
+              <>
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
+                  <Text style={styles.sectionTitle}>Upcoming Booking</Text>
+                  <Pressable onPress={() => goToTab('amenities')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+                </View>
+                <View style={[styles.card, { marginBottom: 8 }]}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{amenityNameFor(nextBooking.amenity_id)}</Text>
+                    <Text style={styles.meta}>{nextBooking.booking_date} · {nextBooking.slot}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </>
+        )}
+
         {tab === 'visitors' && (
           <>
             <View style={styles.sectionCard}>
@@ -698,26 +819,173 @@ export default function ResidentHome() {
           </>
         )}
 
-        <View style={{ height: 24 }} />
+        {/* extra bottom padding so content never sits under the fixed bottom nav */}
+        <View style={{ height: 90 }} />
       </ScrollView>
+
+      {/* ---------------- Bottom Nav Bar ---------------- */}
+      <View style={styles.bottomNav}>
+        <Pressable style={styles.navItem} onPress={() => setTab('home')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'home' && styles.navIconWrapActive]}>
+            <IconButton icon="home-variant" size={22} iconColor={tab === 'home' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+          </View>
+          <Text style={[styles.navLabel, tab === 'home' && styles.navLabelActive]}>Home</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setTab('notices')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'notices' && styles.navIconWrapActive]}>
+            <IconButton icon="bullhorn-outline" size={22} iconColor={tab === 'notices' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+          </View>
+          <Text style={[styles.navLabel, tab === 'notices' && styles.navLabelActive]}>Notices</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setTab('visitors')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'visitors' && styles.navIconWrapActive]}>
+            <IconButton icon="account-group-outline" size={22} iconColor={tab === 'visitors' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+            {pendingRequests.length > 0 && tab !== 'visitors' && <View style={styles.navDot} />}
+          </View>
+          <Text style={[styles.navLabel, tab === 'visitors' && styles.navLabelActive]}>Visitors</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setMoreOpen(true)} hitSlop={8}>
+          <View style={[styles.navIconWrap, isMoreActiveTab && styles.navIconWrapActive]}>
+            <IconButton icon="dots-grid" size={22} iconColor={isMoreActiveTab ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+            {pendingDues.length > 0 && !isMoreActiveTab && <View style={styles.navDot} />}
+          </View>
+          <Text style={[styles.navLabel, isMoreActiveTab && styles.navLabelActive]}>More</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setProfileOpen(true)} hitSlop={8}>
+          <View style={styles.navIconWrap}>
+            <View style={styles.navAvatar}>
+              <Text style={styles.navAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+            </View>
+          </View>
+          <Text style={styles.navLabel}>Profile</Text>
+        </Pressable>
+      </View>
+
+      {/* ---------------- More — grid of app sections ---------------- */}
+      <Modal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setMoreOpen(false)}>
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>More</Text>
+            <Text style={styles.sheetSubtitle}>All society services in one place</Text>
+            <View style={styles.moreGrid}>
+              {MORE_TABS.map((t) => (
+                <Pressable key={t.key} style={styles.moreGridTile} onPress={() => goToTab(t.key)}>
+                  <Avatar.Icon size={48} icon={t.icon} style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.moreGridLabel}>{t.label}</Text>
+                  {t.key === 'dues' && pendingDues.length > 0 && (
+                    <View style={styles.moreGridBadge}><Text style={styles.moreGridBadgeText}>{pendingDues.length}</Text></View>
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ---------------- Profile — full page, about you only ---------------- */}
+      <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
+        <View style={styles.profileScreen}>
+          <View style={styles.profileTopBar}>
+            <IconButton icon="arrow-left" size={24} iconColor={INK} onPress={() => setProfileOpen(false)} style={{ margin: 0 }} />
+            <Text style={styles.profileTopBarTitle}>Profile</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            {/* Identity card */}
+            <View style={styles.profileIdCard}>
+              <View style={styles.profileBigAvatar}>
+                <Text style={styles.profileBigAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
+              </View>
+              <Text style={styles.profileBigName}>{myProfile?.full_name ?? 'Resident'}</Text>
+              {(myProfile?.tower_name || myProfile?.flat_number) && (
+                <View style={styles.profileFlatChip}>
+                  <IconButton icon="home-city-outline" size={16} iconColor={ACCENT} style={{ margin: 0, marginRight: -4 }} />
+                  <Text style={styles.profileFlatChipText}>
+                    {myProfile?.tower_name ? `${myProfile.tower_name} · ` : ''}
+                    {myProfile?.flat_number ? `Flat ${myProfile.flat_number}` : ''}
+                  </Text>
+                </View>
+              )}
+              {myProfile?.phone ? (
+                <View style={styles.profilePhoneRow}>
+                  <IconButton icon="phone-outline" size={16} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                  <Text style={styles.profilePhoneText}>{myProfile.phone}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Stats — read-only summary of your account, not navigation */}
+            <Text style={styles.profileSectionLabel}>Your Summary</Text>
+            <View style={styles.statsGrid}>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{pendingDues.length}</Text>
+                <Text style={styles.statTileLabel}>Dues Pending</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{openTicketsCount}</Text>
+                <Text style={styles.statTileLabel}>Open Tickets</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{myBookings.length}</Text>
+                <Text style={styles.statTileLabel}>My Bookings</Text>
+              </View>
+            </View>
+
+            {/* Log out */}
+            <Pressable style={styles.logoutButton} onPress={() => { setProfileOpen(false); handleLogout(); }}>
+              <IconButton icon="logout" size={20} iconColor={DANGER} style={{ margin: 0 }} />
+              <Text style={styles.logoutButtonText}>Log Out</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
+
+  // ---- Header ----
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 18,
     backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: ACCENT, letterSpacing: 1.5, marginBottom: 2 },
-  title: { fontSize: 22, fontWeight: '700', color: INK },
-  logoutBtn: { backgroundColor: ACCENT_SOFT, margin: 0 },
-  tabBar: { backgroundColor: CARD_BG, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
+  greeting: { fontSize: 13, color: INK_MUTED, fontWeight: '600' },
+  title: { fontSize: 24, fontWeight: '800', color: INK, marginTop: 2 },
+  flatBadge: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    backgroundColor: ACCENT_SOFT, borderRadius: 20, paddingLeft: 6, paddingRight: 12, paddingVertical: 3, marginTop: 8,
+  },
+  flatBadgeText: { fontSize: 12, fontWeight: '700', color: ACCENT },
+  avatarButton: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: ACCENT,
+    justifyContent: 'center', alignItems: 'center', marginTop: 2,
+  },
+  avatarButtonInitial: { color: '#fff', fontSize: 17, fontWeight: '700' },
+
+  container: { padding: 20, paddingBottom: 12 },
+
+  // ---- Home dashboard ----
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  statCard: { flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14 },
+  statNum: { fontSize: 20, fontWeight: '800', color: INK },
+  statLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
+  homeSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, letterSpacing: 0.3, textTransform: 'uppercase' },
+  quickActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  quickActionTile: { flex: 1, alignItems: 'center', gap: 8 },
+  quickActionLabel: { fontSize: 11, color: INK_MUTED, fontWeight: '600', textAlign: 'center' },
+  viewAllLink: { fontSize: 13, fontWeight: '700', color: ACCENT },
+
   tabChip: { backgroundColor: INPUT_BG },
   tabChipSelected: { backgroundColor: ACCENT },
-  container: { padding: 20, paddingBottom: 12 },
   sectionCard: {
     marginBottom: 24, borderRadius: 20, backgroundColor: CARD_BG,
     borderWidth: 1, borderColor: BORDER, padding: 20,
@@ -763,4 +1031,93 @@ const styles = StyleSheet.create({
   totalDueLabel: { color: '#fff', opacity: 0.85, fontSize: 13, fontWeight: '600' },
   totalDueAmount: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 4 },
   dueAmount: { fontSize: 16, fontWeight: '700', color: ACCENT },
+
+  // ---- Bottom Nav ----
+  bottomNav: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    flexDirection: 'row',
+    backgroundColor: CARD_BG,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    paddingTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 12,
+  },
+  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  navIconWrap: { width: 44, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  navIconWrapActive: { backgroundColor: ACCENT_SOFT },
+  navDot: { position: 'absolute', top: 2, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: DANGER, borderWidth: 1.5, borderColor: CARD_BG },
+  navLabel: { fontSize: 11, color: INK_FAINT, fontWeight: '600', marginTop: 2 },
+  navLabelActive: { color: ACCENT },
+  navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
+  navAvatarInitial: { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  // ---- More — grid sheet ----
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(21,19,31,0.35)', justifyContent: 'flex-end' },
+  sheetCard: {
+    backgroundColor: CARD_BG,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+  },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: BORDER, alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 19, fontWeight: '800', color: INK },
+  sheetSubtitle: { fontSize: 13, color: INK_MUTED, marginTop: 2, marginBottom: 18 },
+  moreGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  moreGridTile: {
+    width: '30%', alignItems: 'center', gap: 8, paddingVertical: 10, position: 'relative',
+  },
+  moreGridLabel: { fontSize: 12, fontWeight: '600', color: INK, textAlign: 'center' },
+  moreGridBadge: {
+    position: 'absolute', top: 4, right: '18%', backgroundColor: DANGER,
+    borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
+  },
+  moreGridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // ---- Full Profile page (about you only) ----
+  profileScreen: { flex: 1, backgroundColor: PAGE_BG },
+  profileTopBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 56, paddingHorizontal: 8, paddingBottom: 12,
+    backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  profileTopBarTitle: { fontSize: 17, fontWeight: '700', color: INK },
+
+  profileIdCard: {
+    backgroundColor: CARD_BG, borderRadius: 22, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', paddingVertical: 28, paddingHorizontal: 20, marginBottom: 24,
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
+  },
+  profileBigAvatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  profileBigAvatarInitial: { color: '#fff', fontSize: 30, fontWeight: '800' },
+  profileBigName: { fontSize: 20, fontWeight: '800', color: INK },
+  profileFlatChip: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: ACCENT_SOFT,
+    borderRadius: 20, paddingLeft: 8, paddingRight: 14, paddingVertical: 5, marginTop: 10,
+  },
+  profileFlatChipText: { fontSize: 13, fontWeight: '700', color: ACCENT },
+  profilePhoneRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  profilePhoneText: { fontSize: 14, color: INK_MUTED, fontWeight: '600' },
+
+  profileSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, marginLeft: 4, letterSpacing: 0.3, textTransform: 'uppercase' },
+  statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 32 },
+  statTile: {
+    flex: 1, backgroundColor: CARD_BG, borderRadius: 16, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', paddingVertical: 16,
+  },
+  statTileNum: { fontSize: 20, fontWeight: '800', color: INK },
+  statTileLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
+
+  logoutButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: DANGER_BG, borderRadius: 16, paddingVertical: 14,
+  },
+  logoutButtonText: { color: DANGER, fontSize: 15, fontWeight: '700' },
 });
