@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, memo, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, FlatList, Alert, Image } from 'react-native';
-import { TextInput, Button, SegmentedButtons, Card, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
+import { TextInput, Button, Card, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
@@ -23,6 +23,109 @@ type Flat = { id: string; tower_id: string; flat_number: string };
 
 const PRIMARY = '#673AB7';
 
+const statusColor = (status: string) => {
+  if (status === 'approved') return '#2e7d32';
+  if (status === 'denied') return '#c62828';
+  return '#ef6c00';
+};
+
+const statusBg = (status: string) => {
+  if (status === 'approved') return '#e8f5e9';
+  if (status === 'denied') return '#fdecea';
+  return '#fff3e0';
+};
+
+const VisitorCard = memo(function VisitorCard({
+  item,
+  statusColor,
+  statusBg,
+  actionLoadingId,
+  markEntry,
+  markExit,
+}: {
+  item: VisitorRequest;
+  statusColor: (s: string) => string;
+  statusBg: (s: string) => string;
+  actionLoadingId: string | null;
+  markEntry: (id: string) => void;
+  markExit: (id: string) => void;
+}) {
+  return (
+    <Card style={styles.card} mode="elevated">
+      <Card.Content>
+        <View style={styles.rowWithImage}>
+          {item.visitors?.photo_url ? (
+            <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+          ) : (
+            <View style={styles.thumbPlaceholder}>
+              <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <View style={styles.row}>
+              <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
+              <Chip
+                compact
+                textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 12 }}
+                style={{ backgroundColor: statusBg(item.status) }}
+              >
+                {item.pre_approved ? 'pre-approved' : item.status}
+              </Chip>
+            </View>
+            <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+            <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+            {(item.entry_time || item.exit_time) && (
+              <View style={styles.timeRow}>
+                {item.entry_time && (
+                  <View style={styles.timeChip}>
+                    <Text style={styles.timeChipText}>In {new Date(item.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                )}
+                {item.exit_time && (
+                  <View style={styles.timeChip}>
+                    <Text style={styles.timeChipText}>Out {new Date(item.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      </Card.Content>
+      {((item.status === 'approved' && !item.entry_time) || (item.entry_time && !item.exit_time)) ? (
+        <View>
+          <Divider style={{ marginTop: 8 }} />
+          <Card.Actions>
+            {item.status === 'approved' && !item.entry_time && (
+              <Button
+                mode="contained"
+                icon="login"
+                buttonColor={PRIMARY}
+                loading={actionLoadingId === item.id}
+                disabled={actionLoadingId === item.id}
+                onPress={() => markEntry(item.id)}
+              >
+                Mark Entry
+              </Button>
+            )}
+            {item.entry_time && !item.exit_time && (
+              <Button
+                mode="outlined"
+                icon="logout"
+                textColor={PRIMARY}
+                loading={actionLoadingId === item.id}
+                disabled={actionLoadingId === item.id}
+                onPress={() => markExit(item.id)}
+              >
+                Mark Exit
+              </Button>
+            )}
+          </Card.Actions>
+        </View>
+      ) : null}
+    </Card>
+  );
+});
+
 export default function GuardHome() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -32,6 +135,7 @@ export default function GuardHome() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const actionLoadingRef = useRef<string | null>(null);
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [towers, setTowers] = useState<Tower[]>([]);
   const [flats, setFlats] = useState<Flat[]>([]);
@@ -43,6 +147,10 @@ export default function GuardHome() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
+
+  useEffect(() => {
+    actionLoadingRef.current = actionLoadingId;
+  }, [actionLoadingId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -173,8 +281,9 @@ export default function GuardHome() {
     }
   };
 
-  const markEntry = async (id: string) => {
-    if (actionLoadingId) return;
+  const markEntry = useCallback(async (id: string) => {
+    if (actionLoadingRef.current) return;
+    actionLoadingRef.current = id;
     setActionLoadingId(id);
     try {
       const { error } = await supabase.from('visitor_requests').update({ entry_time: new Date().toISOString() }).eq('id', id);
@@ -182,12 +291,14 @@ export default function GuardHome() {
     } catch {
       Alert.alert('Something went wrong', 'Please try again');
     } finally {
+      actionLoadingRef.current = null;
       setActionLoadingId(null);
     }
-  };
+  }, []);
 
-  const markExit = async (id: string) => {
-    if (actionLoadingId) return;
+  const markExit = useCallback(async (id: string) => {
+    if (actionLoadingRef.current) return;
+    actionLoadingRef.current = id;
     setActionLoadingId(id);
     try {
       const { error } = await supabase.from('visitor_requests').update({ exit_time: new Date().toISOString() }).eq('id', id);
@@ -195,21 +306,10 @@ export default function GuardHome() {
     } catch {
       Alert.alert('Something went wrong', 'Please try again');
     } finally {
+      actionLoadingRef.current = null;
       setActionLoadingId(null);
     }
-  };
-
-  const statusColor = (status: string) => {
-    if (status === 'approved') return '#2e7d32';
-    if (status === 'denied') return '#c62828';
-    return '#ef6c00';
-  };
-
-  const statusBg = (status: string) => {
-    if (status === 'approved') return '#e8f5e9';
-    if (status === 'denied') return '#fdecea';
-    return '#fff3e0';
-  };
+  }, []);
 
   const activeFilterCount = (filterStatus !== 'all' ? 1 : 0) + (filterType !== 'all' ? 1 : 0) + (filterTower !== 'all' ? 1 : 0);
 
@@ -223,9 +323,6 @@ export default function GuardHome() {
     const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     return sortOrder === 'newest' ? -diff : diff;
   });
-
-  const showActions = (item: VisitorRequest) => 
-    (item.status === 'approved' && !item.entry_time) || (item.entry_time && !item.exit_time);
 
   return (
     <View style={styles.screen}>
@@ -251,19 +348,27 @@ export default function GuardHome() {
 
             <Text style={styles.fieldLabel}>Visitor Type</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
-              <SegmentedButtons
-                value={visitorType}
-                onValueChange={setVisitorType}
-                style={styles.segmentedButtonsContainer}
-                theme={{ colors: { secondaryContainer: '#ede7f6', onSecondaryContainer: PRIMARY } }}
-                buttons={[
-                  { value: 'guest', label: 'Guest', icon: 'account', showSelectedCheck: false },
-                  { value: 'delivery', label: 'Delivery', icon: 'package-variant', showSelectedCheck: false },
-                  { value: 'cab', label: 'Cab', icon: 'car', showSelectedCheck: false },
-                  { value: 'service', label: 'Service', icon: 'wrench', showSelectedCheck: false },
-                  { value: 'other', label: 'Other', icon: 'dots-horizontal', showSelectedCheck: false },
-                ]}
-              />
+              <View style={styles.typeChipRow}>
+                {[
+                  { value: 'guest', label: 'Guest', icon: 'account' },
+                  { value: 'delivery', label: 'Delivery', icon: 'package-variant' },
+                  { value: 'cab', label: 'Cab', icon: 'car' },
+                  { value: 'service', label: 'Service', icon: 'wrench' },
+                  { value: 'other', label: 'Other', icon: 'dots-horizontal' },
+                ].map((opt) => (
+                  <Chip
+                    key={opt.value}
+                    icon={opt.icon}
+                    selected={visitorType === opt.value}
+                    onPress={() => setVisitorType(opt.value)}
+                    style={[styles.typeChip, visitorType === opt.value && styles.typeChipSelected]}
+                    textStyle={visitorType === opt.value ? styles.typeChipTextSelected : undefined}
+                    selectedColor={PRIMARY}
+                  >
+                    {opt.label}
+                  </Chip>
+                ))}
+              </View>
             </ScrollView>
 
             {visitorType === 'other' && (
@@ -381,76 +486,14 @@ export default function GuardHome() {
           scrollEnabled={false}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           renderItem={({ item }) => (
-            <Card style={styles.card} mode="elevated">
-              <Card.Content>
-                <View style={styles.rowWithImage}>
-                  {item.visitors?.photo_url ? (
-                    <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-                  ) : (
-                    <View style={styles.thumbPlaceholder}>
-                      <Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text>
-                    </View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <View style={styles.row}>
-                      <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
-                      <Chip
-                        compact
-                        textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 12 }}
-                        style={{ backgroundColor: statusBg(item.status) }}
-                      >
-                        {item.pre_approved ? 'pre-approved' : item.status}
-                      </Chip>
-                    </View>
-                    <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                    {(item.entry_time || item.exit_time) && (
-                      <View style={styles.timeRow}>
-                        {item.entry_time && (
-                          <View style={styles.timeChip}>
-                            <Text style={styles.timeChipText}>In {new Date(item.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                          </View>
-                        )}
-                        {item.exit_time && (
-                          <View style={styles.timeChip}>
-                            <Text style={styles.timeChipText}>Out {new Date(item.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </Card.Content>
-              {showActions(item) && <Divider style={{ marginTop: 8 }} />}
-              {showActions(item) && (
-                <Card.Actions>
-                  {item.status === 'approved' && !item.entry_time && (
-                    <Button
-                      mode="contained"
-                      icon="login"
-                      buttonColor={PRIMARY}
-                      loading={actionLoadingId === item.id}
-                      disabled={actionLoadingId === item.id}
-                      onPress={() => markEntry(item.id)}
-                    >
-                      Mark Entry
-                    </Button>
-                  )}
-                  {item.entry_time && !item.exit_time && (
-                    <Button
-                      mode="outlined"
-                      icon="logout"
-                      textColor={PRIMARY}
-                      loading={actionLoadingId === item.id}
-                      disabled={actionLoadingId === item.id}
-                      onPress={() => markExit(item.id)}
-                    >
-                      Mark Exit
-                    </Button>
-                  )}
-                </Card.Actions>
-              )}
-            </Card>
+            <VisitorCard
+              item={item}
+              statusColor={statusColor}
+              statusBg={statusBg}
+              actionLoadingId={actionLoadingId}
+              markEntry={markEntry}
+              markExit={markExit}
+            />
           )}
         />
 
@@ -495,10 +538,12 @@ const styles = StyleSheet.create({
 
   fieldLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 6, marginTop: 2 },
   input: { marginBottom: 14, backgroundColor: '#fff' },
-  
-  // Custom segment wrapper layout fixes
+
   segmentedScroll: { marginBottom: 14 },
-  segmentedButtonsContainer: { minWidth: 420 },
+  typeChipRow: { flexDirection: 'row', gap: 8 },
+  typeChip: { backgroundColor: '#faf9fc' },
+  typeChipSelected: { backgroundColor: '#ede7f6' },
+  typeChipTextSelected: { color: PRIMARY, fontWeight: '700' },
 
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   previewImage: { width: 64, height: 64, borderRadius: 12 },
