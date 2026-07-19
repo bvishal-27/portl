@@ -40,6 +40,7 @@ type Ticket = { id: string; category: string; description: string; status: strin
 type Amenity = { id: string; name: string; capacity: number; slots: string[] };
 type Booking = { id: string; amenity_id: string; booking_date: string; slot: string };
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
+type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
 
 const TABS = [
   { key: 'visitors', label: 'Visitors', icon: 'account-group' },
@@ -47,6 +48,7 @@ const TABS = [
   { key: 'polls', label: 'Polls', icon: 'poll' },
   { key: 'helpdesk', label: 'Helpdesk', icon: 'headset' },
   { key: 'amenities', label: 'Amenities', icon: 'calendar-check' },
+  { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'staff', label: 'Staff', icon: 'account-hard-hat' },
 ];
 
@@ -71,6 +73,8 @@ export default function ResidentHome() {
   const [bookingDate, setBookingDate] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [dues, setDues] = useState<Due[]>([]);
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [showAllNotices, setShowAllNotices] = useState(false);
   const [showAllPolls, setShowAllPolls] = useState(false);
@@ -119,19 +123,16 @@ export default function ResidentHome() {
     const { data } = await supabase.from('staff_directory').select('*').order('name');
     if (data) setStaff(data);
   };
+  const fetchDues = async (currentFlatId: string) => {
+    const { data } = await supabase.from('dues').select('*').eq('flat_id', currentFlatId).order('due_date', { ascending: false });
+    if (data) setDues(data);
+  };
 
-  // FIXED: channels array now lives outside the async function so the
-  // useEffect cleanup can actually reach it and unsubscribe properly.
   useEffect(() => {
     let cancelled = false;
     let channels: ReturnType<typeof supabase.channel>[] = [];
 
     const init = async () => {
-      // IMPORTANT: clear any channels left over from a previous mount / Fast Refresh.
-      // The supabase client is a singleton - its internal channel list survives
-      // hot reloads even though React component state resets, so without this,
-      // re-creating a channel with the same topic name throws
-      // "cannot add postgres_changes callbacks ... after subscribe()".
       await supabase.removeAllChannels();
 
       const { data: profile } = await supabase.from('profiles').select('flat_id').eq('id', userId).single();
@@ -145,8 +146,9 @@ export default function ResidentHome() {
       fetchAmenities();
       fetchMyBookings();
       fetchStaff();
+      fetchDues(profile.flat_id);
 
-      if (cancelled) return; // guard in case unmounted while awaiting above
+      if (cancelled) return;
 
       channels = [
         supabase.channel(`visitor_requests_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests', filter: `flat_id=eq.${profile.flat_id}` }, () => fetchRequests(profile.flat_id)).subscribe(),
@@ -157,12 +159,12 @@ export default function ResidentHome() {
         supabase.channel(`amenities_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'amenities' }, () => fetchAmenities()).subscribe(),
         supabase.channel(`bookings_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `resident_id=eq.${userId}` }, () => fetchMyBookings()).subscribe(),
         supabase.channel(`staff_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, () => fetchStaff()).subscribe(),
+        supabase.channel(`dues_resident_${userId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'dues', filter: `flat_id=eq.${profile.flat_id}` }, () => fetchDues(profile.flat_id)).subscribe(),
       ];
     };
 
     init();
 
-    // This is the actual useEffect cleanup now - it WILL run on unmount/re-run.
     return () => {
       cancelled = true;
       channels.forEach((c) => supabase.removeChannel(c));
@@ -287,6 +289,21 @@ export default function ResidentHome() {
     fetchMyBookings();
   };
 
+  const payDue = async (dueId: string) => {
+    if (payingId) return;
+    setPayingId(dueId);
+    try {
+      const { error } = await supabase.from('dues').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', dueId);
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+      Alert.alert('Payment successful', 'This due has been marked as paid.');
+    } finally {
+      setPayingId(null);
+    }
+  };
+
   const onDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
     if (selectedDate) setBookingDate(selectedDate.toISOString().split('T')[0]);
@@ -295,6 +312,11 @@ export default function ResidentHome() {
   const hasVoted = (pollId: string) => votes.some((v) => v.poll_id === pollId && v.voter_id === userId);
   const voteCount = (optionId: string) => votes.filter((v) => v.option_id === optionId).length;
   const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
+
+  // ---- Dues derived values (these were missing before — now declared before use) ----
+  const pendingDues = dues.filter((d) => d.status !== 'paid');
+  const paidDues = dues.filter((d) => d.status === 'paid');
+  const totalDue = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
 
   const pendingRequests = requests.filter((r) => r.status === 'pending');
   const pastRequests = requests.filter((r) => r.status !== 'pending');
@@ -583,6 +605,72 @@ export default function ResidentHome() {
           </>
         )}
 
+        {tab === 'dues' && (
+          <>
+            {pendingDues.length > 0 && (
+              <View style={[styles.card, styles.totalDueCard]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.totalDueLabel}>Total Outstanding</Text>
+                  <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={[styles.sectionHeaderRow, { marginTop: pendingDues.length > 0 ? 20 : 0 }]}>
+              <Avatar.Icon size={30} icon="cash-clock" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Pending Dues</Text>
+              {pendingDues.length > 0 && <Text style={styles.countBadge}>{pendingDues.length}</Text>}
+            </View>
+            {pendingDues.length === 0 && (
+              <View style={styles.emptyState}>
+                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.empty}>No pending dues — all clear!</Text>
+              </View>
+            )}
+            {pendingDues.map((d) => (
+              <View key={d.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{d.description}</Text>
+                    <Text style={styles.dueAmount}>₹{d.amount}</Text>
+                  </View>
+                  <Text style={styles.metaFaint}>Due by {d.due_date}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}>
+                  <Button
+                    mode="contained"
+                    buttonColor={ACCENT}
+                    textColor="#fff"
+                    loading={payingId === d.id}
+                    disabled={payingId === d.id}
+                    onPress={() => payDue(d.id)}
+                  >
+                    Pay Now
+                  </Button>
+                </View>
+              </View>
+            ))}
+
+            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+              <Avatar.Icon size={30} icon="cash-check" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Payment History</Text>
+            </View>
+            {paidDues.length === 0 && <Text style={styles.empty}>No payments yet</Text>}
+            {paidDues.map((d) => (
+              <View key={d.id} style={styles.historyRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historyName}>{d.description}</Text>
+                  <Text style={styles.metaFaint}>Paid {d.paid_at ? new Date(d.paid_at).toLocaleDateString() : ''}</Text>
+                </View>
+                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: SUCCESS }} style={{ backgroundColor: SUCCESS_BG }}>
+                  ₹{d.amount}
+                </Chip>
+              </View>
+            ))}
+          </>
+        )}
+
         {tab === 'staff' && (
           <>
             <View style={styles.sectionHeaderRow}>
@@ -671,4 +759,8 @@ const styles = StyleSheet.create({
   slotChip: { marginBottom: 4, backgroundColor: INPUT_BG },
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 10 },
   empty: { color: INK_FAINT, fontSize: 14 },
+  totalDueCard: { backgroundColor: ACCENT },
+  totalDueLabel: { color: '#fff', opacity: 0.85, fontSize: 13, fontWeight: '600' },
+  totalDueAmount: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 4 },
+  dueAmount: { fontSize: 16, fontWeight: '700', color: ACCENT },
 });

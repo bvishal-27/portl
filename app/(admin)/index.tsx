@@ -145,7 +145,7 @@ const fetchDues = async () => {
 };
 
   useEffect(() => {
-    fetchRequests(); fetchTickets(); fetchAmenities(); fetchBookings();
+    fetchRequests(); fetchTickets(); fetchAmenities();  fetchBookings();
 
 fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues();
 
@@ -404,6 +404,9 @@ const deleteDue = async (id: string) => {
   const ticketStatusColor = (s: string) => (s === 'resolved' ? SUCCESS : s === 'in_progress' ? WARN : INK_MUTED);
   const ticketStatusBg = (s: string) => (s === 'resolved' ? SUCCESS_BG : s === 'in_progress' ? WARN_BG : INPUT_BG);
   const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
+  const pendingDues = dues.filter((d) => d.status !== 'paid');
+  const paidDues = dues.filter((d) => d.status === 'paid');
+  const totalDue = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
   const towerNameFor = (id: string) => towers.find((t) => t.id === id)?.name ?? 'Unknown';
   const flatNumberFor = (id: string | null) => flats.find((f) => f.id === id)?.flat_number ?? '—';
   const pendingResidents = residents.filter((r) => !r.approved);
@@ -919,4 +922,8 @@ const styles = StyleSheet.create({
   photoButton: { flex: 1, borderColor: ACCENT },
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 10 },
   empty: { color: INK_FAINT, fontSize: 14 },
+  totalDueCard: { backgroundColor: ACCENT },
+  totalDueLabel: { color: '#fff', opacity: 0.85, fontSize: 13, fontWeight: '600' },
+  totalDueAmount: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 4 },
+  dueAmount: { fontSize: 16, fontWeight: '700', color: ACCENT },
 });
