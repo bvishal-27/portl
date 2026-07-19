@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image, Platform, Modal, Pressable } from 'react-native';
 import { Button, Chip, TextInput, SegmentedButtons, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -42,12 +42,12 @@ type Flat = { id: string; tower_id: string; flat_number: string };
 type Profile = { id: string; full_name: string; role: string; flat_id: string | null; approved: boolean };
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
 type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
+type MyAdminProfile = { full_name: string; phone: string | null };
 
-const MAIN_TABS = [
-  { key: 'visitors', label: 'Visitors', icon: 'account-group' },
+// Everything reachable from the "More" grid — sections that don't get a dedicated bottom-bar slot
+const MORE_TABS = [
   { key: 'notices', label: 'Notices', icon: 'bullhorn' },
   { key: 'polls', label: 'Polls', icon: 'poll' },
-  { key: 'tickets', label: 'Tickets', icon: 'headset' },
   { key: 'amenities', label: 'Amenities', icon: 'calendar-check' },
   { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'society', label: 'Society', icon: 'domain' },
@@ -56,7 +56,7 @@ const MAIN_TABS = [
 export default function AdminHome() {
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [filter, setFilter] = useState('all');
-  const [tab, setTab] = useState('visitors');
+  const [tab, setTab] = useState('home');
   const [societySubTab, setSocietySubTab] = useState('towers');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [amenities, setAmenities] = useState<Amenity[]>([]);
@@ -91,6 +91,11 @@ const [dueDescription, setDueDescription] = useState('');
 const [dueAmount, setDueAmount] = useState('');
 const [dueDate, setDueDate] = useState('');
 const [dueApplyAll, setDueApplyAll] = useState(false);
+
+  // ---- bottom nav / More sheet / Profile page state ----
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [myProfile, setMyProfile] = useState<MyAdminProfile | null>(null);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -143,11 +148,16 @@ const fetchDues = async () => {
   const { data } = await supabase.from('dues').select('*').order('due_date', { ascending: false });
   if (data) setDues(data);
 };
+  // Pulls name/phone for the Profile page. Read-only, additive — mirrors Resident's fetchMyProfile.
+  const fetchMyProfile = async () => {
+    const { data } = await supabase.from('profiles').select('full_name, phone').eq('id', userId).single();
+    if (data) setMyProfile({ full_name: (data as any).full_name, phone: (data as any).phone ?? null });
+  };
 
   useEffect(() => {
     fetchRequests(); fetchTickets(); fetchAmenities();  fetchBookings();
 
-fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues();
+fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues(); fetchMyProfile();
 
 
     const channels = [
@@ -407,6 +417,11 @@ const deleteDue = async (id: string) => {
   const pendingDues = dues.filter((d) => d.status !== 'paid');
   const paidDues = dues.filter((d) => d.status === 'paid');
   const totalDue = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
+  const flatsOwingCount = new Set(pendingDues.map((d) => d.flat_id)).size;
+  const currentMonthKey = `${new Date().getFullYear()}-${new Date().getMonth()}`;
+  const collectedThisMonth = paidDues
+    .filter((d) => d.paid_at && `${new Date(d.paid_at).getFullYear()}-${new Date(d.paid_at).getMonth()}` === currentMonthKey)
+    .reduce((sum, d) => sum + Number(d.amount), 0);
   const towerNameFor = (id: string) => towers.find((t) => t.id === id)?.name ?? 'Unknown';
   const flatNumberFor = (id: string | null) => flats.find((f) => f.id === id)?.flat_number ?? '—';
   const pendingResidents = residents.filter((r) => !r.approved);
@@ -414,34 +429,149 @@ const deleteDue = async (id: string) => {
 
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
+  // ---- Derived, display-only values for the Home dashboard + Profile page (no new fetches) ----
+  const firstName = myProfile?.full_name?.split(' ')[0] ?? 'Admin';
+  const openTicketsCount = tickets.filter((t) => t.status !== 'resolved').length;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const latestNotice = allNotices[0] ?? null;
+  const previewPendingResidents = pendingResidents.slice(0, 3);
+  const isMoreActiveTab = MORE_TABS.some((t) => t.key === tab);
+
+  const goToTab = (key: string) => {
+    setTab(key);
+    setMoreOpen(false);
+    setProfileOpen(false);
+  };
+
   return (
     <View style={styles.screen}>
+      {/* ---------------- Top Header ---------------- */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>PORTL</Text>
-          <Text style={styles.title}>Admin</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>{greeting},</Text>
+          <Text style={styles.title}>{firstName}</Text>
+          <View style={styles.roleBadge}>
+            <IconButton icon="shield-check-outline" size={14} iconColor={ACCENT} style={{ margin: 0, marginRight: -4 }} />
+            <Text style={styles.roleBadgeText}>Administrator</Text>
+          </View>
         </View>
-        <IconButton icon="logout" size={22} iconColor={ACCENT} onPress={handleLogout} style={styles.logoutBtn} />
-      </View>
-
-      <View style={styles.tabBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-          {MAIN_TABS.map((t) => (
-            <Chip
-              key={t.key}
-              icon={t.icon}
-              selected={tab === t.key}
-              onPress={() => setTab(t.key)}
-              style={[styles.tabChip, tab === t.key && styles.tabChipSelected]}
-              textStyle={tab === t.key ? { color: '#fff', fontWeight: '600' } : { color: INK_MUTED }}
-            >
-              {t.label}{t.key === 'society' && pendingResidents.length > 0 ? ` (${pendingResidents.length})` : ''}
-            </Chip>
-          ))}
-        </ScrollView>
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        {tab === 'home' && (
+          <>
+            {/* Quick stats */}
+            <View style={styles.statsRow}>
+              <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
+                <Text style={styles.statNum}>{todayCount}</Text>
+                <Text style={styles.statLabel}>Visitors Today</Text>
+              </Pressable>
+              <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
+                <Text style={[styles.statNum, pendingCount > 0 && { color: WARN }]}>{pendingCount}</Text>
+                <Text style={styles.statLabel}>Pending Visitors</Text>
+              </Pressable>
+              <Pressable style={styles.statCard} onPress={() => goToTab('tickets')}>
+                <Text style={styles.statNum}>{openTicketsCount}</Text>
+                <Text style={styles.statLabel}>Open Tickets</Text>
+              </Pressable>
+            </View>
+
+            {/* Quick actions */}
+            <Text style={styles.homeSectionLabel}>Quick Actions</Text>
+            <View style={styles.quickActionsRow}>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('visitors')}>
+                <Avatar.Icon size={40} icon="account-group" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Visitors</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('tickets')}>
+                <Avatar.Icon size={40} icon="headset" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Tickets</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('notices')}>
+                <Avatar.Icon size={40} icon="bullhorn" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Notices</Text>
+              </Pressable>
+              <Pressable style={styles.quickActionTile} onPress={() => goToTab('society')}>
+                <Avatar.Icon size={40} icon="domain" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.quickActionLabel}>Society</Text>
+              </Pressable>
+            </View>
+
+            {/* Dues snapshot — pending vs collected, with a flat count for context */}
+            {(pendingDues.length > 0 || paidDues.length > 0) && (
+              <Pressable style={[styles.card, styles.duesSnapshotCard]} onPress={() => goToTab('dues')}>
+                <View style={styles.duesSnapshotRow}>
+                  <View style={styles.duesSnapshotHalf}>
+                    <Text style={styles.duesSnapshotLabel}>Pending</Text>
+                    <Text style={[styles.duesSnapshotAmount, pendingDues.length > 0 && { color: DANGER }]}>₹{totalDue.toFixed(2)}</Text>
+                    <Text style={styles.duesSnapshotSub}>{flatsOwingCount} flat{flatsOwingCount === 1 ? '' : 's'} owing</Text>
+                  </View>
+                  <View style={styles.duesSnapshotDivider} />
+                  <View style={styles.duesSnapshotHalf}>
+                    <Text style={styles.duesSnapshotLabel}>Collected this month</Text>
+                    <Text style={[styles.duesSnapshotAmount, { color: SUCCESS }]}>₹{collectedThisMonth.toFixed(2)}</Text>
+                    <Text style={styles.duesSnapshotSub}>{new Date().toLocaleDateString(undefined, { month: 'long' })}</Text>
+                  </View>
+                  <IconButton icon="chevron-right" size={20} iconColor={INK_FAINT} style={{ margin: 0 }} />
+                </View>
+              </Pressable>
+            )}
+
+            {/* Pending resident approvals preview */}
+            {pendingResidents.length > 0 && (
+              <>
+                <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+                  <Avatar.Icon size={30} icon="account-alert" style={{ backgroundColor: WARN_BG }} color={WARN} />
+                  <Text style={styles.sectionTitle}>Pending Approvals</Text>
+                  <Text style={styles.countBadge}>{pendingResidents.length}</Text>
+                </View>
+                {previewPendingResidents.map((r) => (
+                  <View key={r.id} style={[styles.card, styles.pendingCard]}>
+                    <View style={{ padding: 16 }}>
+                      <View style={styles.rowWithImage}>
+                        <View style={[styles.thumbPlaceholder, { backgroundColor: WARN }]}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                        <View>
+                          <Text style={styles.visitorName}>{r.full_name}</Text>
+                          <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Divider style={{ backgroundColor: BORDER }} />
+                    <View style={styles.cardActions}>
+                      <Button compact textColor={DANGER} onPress={() => rejectResident(r.id)}>Reject</Button>
+                      <Button compact mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => approveResident(r.id)}>Approve</Button>
+                    </View>
+                  </View>
+                ))}
+                {pendingResidents.length > 3 && (
+                  <Button compact textColor={ACCENT} onPress={() => { setSocietySubTab('residents'); goToTab('society'); }}>
+                    View all ({pendingResidents.length})
+                  </Button>
+                )}
+              </>
+            )}
+
+            {/* Latest notice preview */}
+            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Latest Notice</Text>
+              <Pressable onPress={() => goToTab('notices')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+            </View>
+            {latestNotice ? (
+              <View style={[styles.card, { marginBottom: 20 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{latestNotice.title}</Text>
+                  <Text style={styles.noticeBody} numberOfLines={2}>{latestNotice.body}</Text>
+                  <Text style={styles.metaFaint}>{new Date(latestNotice.created_at).toLocaleDateString()}</Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={[styles.empty, { marginBottom: 20 }]}>No notices posted yet</Text>
+            )}
+          </>
+        )}
+
         {tab === 'visitors' && (
           <>
             <View style={styles.statsRow}>
@@ -565,7 +695,12 @@ const deleteDue = async (id: string) => {
               <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>All Tickets</Text>
             </View>
-            {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
+            {tickets.length === 0 && (
+              <View style={styles.emptyState}>
+                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                <Text style={styles.empty}>No tickets raised yet</Text>
+              </View>
+            )}
             <FlatList data={tickets} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
               <View style={styles.card}>
                 <View style={{ padding: 16 }}>
@@ -667,6 +802,15 @@ const deleteDue = async (id: string) => {
 
               <Button mode="contained" onPress={handleCreateDue} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Due</Button>
             </View>
+
+            {pendingDues.length > 0 && (
+              <View style={[styles.card, styles.totalDueCard, { marginBottom: 20 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.totalDueLabel}>Total Outstanding</Text>
+                  <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
+                </View>
+              </View>
+            )}
 
             <View style={styles.sectionHeaderRow}>
               <Avatar.Icon size={30} icon="cash-multiple" style={styles.sectionIcon} color={ACCENT} />
@@ -865,26 +1009,167 @@ const deleteDue = async (id: string) => {
           </View>
         )}
 
-        <View style={{ height: 24 }} />
+        {/* extra bottom padding so content never sits under the fixed bottom nav */}
+        <View style={{ height: 90 }} />
       </ScrollView>
+
+      {/* ---------------- Bottom Nav Bar ---------------- */}
+      <View style={styles.bottomNav}>
+        <Pressable style={styles.navItem} onPress={() => setTab('home')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'home' && styles.navIconWrapActive]}>
+            <IconButton icon="home-variant" size={22} iconColor={tab === 'home' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+          </View>
+          <Text style={[styles.navLabel, tab === 'home' && styles.navLabelActive]}>Home</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setTab('visitors')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'visitors' && styles.navIconWrapActive]}>
+            <IconButton icon="account-group-outline" size={22} iconColor={tab === 'visitors' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+            {pendingCount > 0 && tab !== 'visitors' && <View style={styles.navDot} />}
+          </View>
+          <Text style={[styles.navLabel, tab === 'visitors' && styles.navLabelActive]}>Visitors</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setTab('tickets')} hitSlop={8}>
+          <View style={[styles.navIconWrap, tab === 'tickets' && styles.navIconWrapActive]}>
+            <IconButton icon="headset" size={22} iconColor={tab === 'tickets' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+            {openTicketsCount > 0 && tab !== 'tickets' && <View style={styles.navDot} />}
+          </View>
+          <Text style={[styles.navLabel, tab === 'tickets' && styles.navLabelActive]}>Tickets</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setMoreOpen(true)} hitSlop={8}>
+          <View style={[styles.navIconWrap, isMoreActiveTab && styles.navIconWrapActive]}>
+            <IconButton icon="dots-grid" size={22} iconColor={isMoreActiveTab ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
+            {pendingResidents.length > 0 && !isMoreActiveTab && <View style={styles.navDot} />}
+          </View>
+          <Text style={[styles.navLabel, isMoreActiveTab && styles.navLabelActive]}>More</Text>
+        </Pressable>
+
+        <Pressable style={styles.navItem} onPress={() => setProfileOpen(true)} hitSlop={8}>
+          <View style={styles.navIconWrap}>
+            <View style={styles.navAvatar}>
+              <Text style={styles.navAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? 'A'}</Text>
+            </View>
+          </View>
+          <Text style={styles.navLabel}>Profile</Text>
+        </Pressable>
+      </View>
+
+      {/* ---------------- More — grid of app sections ---------------- */}
+      <Modal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setMoreOpen(false)}>
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>More</Text>
+            <Text style={styles.sheetSubtitle}>Manage every part of the society</Text>
+            <View style={styles.moreGrid}>
+              {MORE_TABS.map((t) => (
+                <Pressable key={t.key} style={styles.moreGridTile} onPress={() => goToTab(t.key)}>
+                  <Avatar.Icon size={48} icon={t.icon} style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.moreGridLabel}>{t.label}</Text>
+                  {t.key === 'society' && pendingResidents.length > 0 && (
+                    <View style={styles.moreGridBadge}><Text style={styles.moreGridBadgeText}>{pendingResidents.length}</Text></View>
+                  )}
+                  {t.key === 'dues' && pendingDues.length > 0 && (
+                    <View style={styles.moreGridBadge}><Text style={styles.moreGridBadgeText}>{pendingDues.length}</Text></View>
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ---------------- Profile — full page, about you only ---------------- */}
+      <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
+        <View style={styles.profileScreen}>
+          <View style={styles.profileTopBar}>
+            <IconButton icon="arrow-left" size={24} iconColor={INK} onPress={() => setProfileOpen(false)} style={{ margin: 0 }} />
+            <Text style={styles.profileTopBarTitle}>Profile</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            {/* Identity card */}
+            <View style={styles.profileIdCard}>
+              <View style={styles.profileBigAvatar}>
+                <Text style={styles.profileBigAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? 'A'}</Text>
+              </View>
+              <Text style={styles.profileBigName}>{myProfile?.full_name ?? 'Admin'}</Text>
+              <View style={styles.profileRoleChip}>
+                <IconButton icon="shield-check-outline" size={16} iconColor={ACCENT} style={{ margin: 0, marginRight: -4 }} />
+                <Text style={styles.profileRoleChipText}>Administrator</Text>
+              </View>
+              {myProfile?.phone ? (
+                <View style={styles.profilePhoneRow}>
+                  <IconButton icon="phone-outline" size={16} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                  <Text style={styles.profilePhoneText}>{myProfile.phone}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Stats — read-only summary of the society, not navigation */}
+            <Text style={styles.profileSectionLabel}>Society Summary</Text>
+            <View style={styles.statsGrid}>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{pendingCount}</Text>
+                <Text style={styles.statTileLabel}>Pending Visitors</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{openTicketsCount}</Text>
+                <Text style={styles.statTileLabel}>Open Tickets</Text>
+              </View>
+              <View style={styles.statTile}>
+                <Text style={styles.statTileNum}>{pendingResidents.length}</Text>
+                <Text style={styles.statTileLabel}>Approvals Due</Text>
+              </View>
+            </View>
+
+            {/* Log out */}
+            <Pressable style={styles.logoutButton} onPress={() => { setProfileOpen(false); handleLogout(); }}>
+              <IconButton icon="logout" size={20} iconColor={DANGER} style={{ margin: 0 }} />
+              <Text style={styles.logoutButtonText}>Log Out</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: ACCENT, letterSpacing: 1.5, marginBottom: 2 },
-  title: { fontSize: 22, fontWeight: '700', color: INK },
-  logoutBtn: { backgroundColor: ACCENT_SOFT, margin: 0 },
-  tabBar: { backgroundColor: CARD_BG, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
+
+  // ---- Header ----
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 18,
+    backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  greeting: { fontSize: 13, color: INK_MUTED, fontWeight: '600' },
+  title: { fontSize: 24, fontWeight: '800', color: INK, marginTop: 2 },
+  roleBadge: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    backgroundColor: ACCENT_SOFT, borderRadius: 20, paddingLeft: 6, paddingRight: 12, paddingVertical: 3, marginTop: 8,
+  },
+  roleBadgeText: { fontSize: 12, fontWeight: '700', color: ACCENT },
+
+  container: { padding: 20, paddingBottom: 12 },
+
+  // ---- Home dashboard ----
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  statCard: { flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14 },
+  statNum: { fontSize: 20, fontWeight: '800', color: INK },
+  statLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
+  homeSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, letterSpacing: 0.3, textTransform: 'uppercase' },
+  quickActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
+  quickActionTile: { flex: 1, alignItems: 'center', gap: 8 },
+  quickActionLabel: { fontSize: 11, color: INK_MUTED, fontWeight: '600', textAlign: 'center' },
+  viewAllLink: { fontSize: 13, fontWeight: '700', color: ACCENT },
+
   tabChip: { backgroundColor: INPUT_BG },
   tabChipSelected: { backgroundColor: ACCENT },
-  container: { padding: 20, paddingBottom: 12 },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  statCard: { flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14 },
-  statNum: { fontSize: 22, fontWeight: '700', color: INK },
-  statLabel: { fontSize: 12, color: INK_MUTED, marginTop: 2 },
   sectionCard: {
     marginBottom: 24, borderRadius: 20, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, padding: 20,
     shadowColor: '#151329', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
@@ -892,6 +1177,7 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   sectionIcon: { backgroundColor: ACCENT_SOFT },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: INK, flex: 1 },
+  countBadge: { fontSize: 12, fontWeight: '700', color: '#fff', backgroundColor: ACCENT, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
   fieldLabel: { fontSize: 12, fontWeight: '600', color: INK_MUTED, marginBottom: 8 },
   inputWrap: { backgroundColor: INPUT_BG, borderRadius: 14, borderWidth: 1.5, borderColor: 'transparent', marginBottom: 14 },
   input: { backgroundColor: 'transparent' },
@@ -910,6 +1196,7 @@ const styles = StyleSheet.create({
   visitorName: { fontSize: 16, fontWeight: '700', color: INK },
   meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
   metaFaint: { color: INK_FAINT, marginTop: 4, fontSize: 12 },
+  noticeBody: { color: INK_MUTED, marginTop: 4, lineHeight: 20 },
   thumb: { width: 52, height: 52, borderRadius: 26 },
   thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
@@ -926,4 +1213,100 @@ const styles = StyleSheet.create({
   totalDueLabel: { color: '#fff', opacity: 0.85, fontSize: 13, fontWeight: '600' },
   totalDueAmount: { color: '#fff', fontSize: 28, fontWeight: '800', marginTop: 4 },
   dueAmount: { fontSize: 16, fontWeight: '700', color: ACCENT },
+  duesSnapshotCard: { marginBottom: 20 },
+  duesSnapshotRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16 },
+  duesSnapshotHalf: { flex: 1 },
+  duesSnapshotLabel: { fontSize: 12, color: INK_MUTED, fontWeight: '600' },
+  duesSnapshotAmount: { fontSize: 20, fontWeight: '800', color: INK, marginTop: 4 },
+  duesSnapshotSub: { fontSize: 11, color: INK_FAINT, marginTop: 3 },
+  duesSnapshotDivider: { width: 1, height: 40, backgroundColor: BORDER, marginHorizontal: 14 },
+
+  // ---- Bottom Nav ----
+  bottomNav: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    flexDirection: 'row',
+    backgroundColor: CARD_BG,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    paddingTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 12,
+  },
+  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  navIconWrap: { width: 44, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  navIconWrapActive: { backgroundColor: ACCENT_SOFT },
+  navDot: { position: 'absolute', top: 2, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: DANGER, borderWidth: 1.5, borderColor: CARD_BG },
+  navLabel: { fontSize: 11, color: INK_FAINT, fontWeight: '600', marginTop: 2 },
+  navLabelActive: { color: ACCENT },
+  navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
+  navAvatarInitial: { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  // ---- More — grid sheet ----
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(21,19,31,0.35)', justifyContent: 'flex-end' },
+  sheetCard: {
+    backgroundColor: CARD_BG,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+  },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: BORDER, alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 19, fontWeight: '800', color: INK },
+  sheetSubtitle: { fontSize: 13, color: INK_MUTED, marginTop: 2, marginBottom: 18 },
+  moreGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  moreGridTile: {
+    width: '30%', alignItems: 'center', gap: 8, paddingVertical: 10, position: 'relative',
+  },
+  moreGridLabel: { fontSize: 12, fontWeight: '600', color: INK, textAlign: 'center' },
+  moreGridBadge: {
+    position: 'absolute', top: 4, right: '18%', backgroundColor: DANGER,
+    borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4,
+  },
+  moreGridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // ---- Full Profile page (about you only) ----
+  profileScreen: { flex: 1, backgroundColor: PAGE_BG },
+  profileTopBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 56, paddingHorizontal: 8, paddingBottom: 12,
+    backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
+  },
+  profileTopBarTitle: { fontSize: 17, fontWeight: '700', color: INK },
+
+  profileIdCard: {
+    backgroundColor: CARD_BG, borderRadius: 22, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', paddingVertical: 28, paddingHorizontal: 20, marginBottom: 24,
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
+  },
+  profileBigAvatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  profileBigAvatarInitial: { color: '#fff', fontSize: 30, fontWeight: '800' },
+  profileBigName: { fontSize: 20, fontWeight: '800', color: INK },
+  profileRoleChip: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: ACCENT_SOFT,
+    borderRadius: 20, paddingLeft: 8, paddingRight: 14, paddingVertical: 5, marginTop: 10,
+  },
+  profileRoleChipText: { fontSize: 13, fontWeight: '700', color: ACCENT },
+  profilePhoneRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  profilePhoneText: { fontSize: 14, color: INK_MUTED, fontWeight: '600' },
+
+  profileSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, marginLeft: 4, letterSpacing: 0.3, textTransform: 'uppercase' },
+  statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 32 },
+  statTile: {
+    flex: 1, backgroundColor: CARD_BG, borderRadius: 16, borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', paddingVertical: 16,
+  },
+  statTileNum: { fontSize: 20, fontWeight: '800', color: INK },
+  statTileLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
+
+  logoutButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: DANGER_BG, borderRadius: 16, paddingVertical: 14,
+  },
+  logoutButtonText: { color: DANGER, fontSize: 15, fontWeight: '700' },
 });

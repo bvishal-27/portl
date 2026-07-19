@@ -383,9 +383,6 @@ export default function ResidentHome() {
             </View>
           )}
         </View>
-        <Pressable onPress={() => setProfileOpen(true)} style={styles.avatarButton}>
-          <Text style={styles.avatarButtonInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
-        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -965,11 +962,6 @@ const styles = StyleSheet.create({
     backgroundColor: ACCENT_SOFT, borderRadius: 20, paddingLeft: 6, paddingRight: 12, paddingVertical: 3, marginTop: 8,
   },
   flatBadgeText: { fontSize: 12, fontWeight: '700', color: ACCENT },
-  avatarButton: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: ACCENT,
-    justifyContent: 'center', alignItems: 'center', marginTop: 2,
-  },
-  avatarButtonInitial: { color: '#fff', fontSize: 17, fontWeight: '700' },
 
   container: { padding: 20, paddingBottom: 12 },
 
