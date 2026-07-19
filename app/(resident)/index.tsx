@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image } from 'react-native';
-import { Button, Card, TextInput, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
+import { Button, TextInput, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -9,7 +9,21 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-const PRIMARY = '#673AB7';
+// ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard) ----
+const INK = '#15131F';
+const INK_MUTED = '#6B6878';
+const INK_FAINT = '#A6A3B3';
+const ACCENT = '#4F3FE0';
+const ACCENT_SOFT = '#EFECFD';
+const GOLD = '#C9922B';
+const PAGE_BG = '#FAFAFC';
+const CARD_BG = '#FFFFFF';
+const BORDER = '#ECEAF2';
+const INPUT_BG = '#F5F4F9';
+const SUCCESS = '#1E9E5A';
+const SUCCESS_BG = '#E9F8EF';
+const DANGER = '#C23B3B';
+const DANGER_BG = '#FBEAEA';
 
 type VisitorRequest = {
   id: string;
@@ -287,8 +301,10 @@ export default function ResidentHome() {
   const visibleHistory = showAllHistory ? pastRequests : pastRequests.slice(0, 5);
   const visibleNotices = showAllNotices ? notices : notices.slice(0, 5);
   const visiblePolls = showAllPolls ? polls : polls.slice(0, 3);
-  const ticketStatusColor = (status: string) => (status === 'resolved' ? '#2e7d32' : status === 'in_progress' ? '#ef6c00' : '#616161');
-  const ticketStatusBg = (status: string) => (status === 'resolved' ? '#e8f5e9' : status === 'in_progress' ? '#fff3e0' : '#f0f0f0');
+  const ticketStatusColor = (status: string) => (status === 'resolved' ? SUCCESS : status === 'in_progress' ? GOLD : INK_MUTED);
+  const ticketStatusBg = (status: string) => (status === 'resolved' ? SUCCESS_BG : status === 'in_progress' ? '#FBF3E4' : INPUT_BG);
+
+  const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
   return (
     <View style={styles.screen}>
@@ -297,7 +313,7 @@ export default function ResidentHome() {
           <Text style={styles.eyebrow}>PORTL</Text>
           <Text style={styles.title}>Resident</Text>
         </View>
-        <IconButton icon="logout" size={22} iconColor={PRIMARY} onPress={handleLogout} style={styles.logoutBtn} />
+        <IconButton icon="logout" size={22} iconColor={ACCENT} onPress={handleLogout} style={styles.logoutBtn} />
       </View>
 
       <View style={styles.tabBar}>
@@ -308,8 +324,8 @@ export default function ResidentHome() {
               icon={t.icon}
               selected={tab === t.key}
               onPress={() => setTab(t.key)}
-              style={[styles.tabChip, tab === t.key && { backgroundColor: PRIMARY }]}
-              textStyle={tab === t.key ? { color: 'white', fontWeight: '600' } : { color: '#4a4560' }}
+              style={[styles.tabChip, tab === t.key && styles.tabChipSelected]}
+              textStyle={tab === t.key ? { color: '#fff', fontWeight: '600' } : { color: INK_MUTED }}
               selectedColor="white"
             >
               {t.label}
@@ -321,44 +337,46 @@ export default function ResidentHome() {
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {tab === 'visitors' && (
           <>
-            <Card style={styles.sectionCard} mode="elevated">
-              <Card.Content>
-                <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={PRIMARY} />
-                  <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
-                </View>
-                <TextInput mode="outlined" label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                <TextInput mode="outlined" label="Guest phone (optional)" value={guestPhone} onChangeText={setGuestPhone} keyboardType="phone-pad" style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                <View style={styles.photoRow}>
-                  {guestPhotoUri ? (
-                    <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />
-                  ) : (
-                    <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color="#b3a6d6" /></View>
-                  )}
-                  <Button mode="outlined" onPress={pickGuestPhoto} icon="camera" textColor={PRIMARY} style={styles.photoButton}>
-                    {guestPhotoUri ? 'Retake' : 'Add Photo'}
-                  </Button>
-                </View>
-                <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-                  Pre-approve Guest
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
+              </View>
+              <View style={styles.inputWrap}>
+                <TextInput mode="flat" label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+              </View>
+              <View style={styles.inputWrap}>
+                <TextInput mode="flat" label="Guest phone (optional)" value={guestPhone} onChangeText={setGuestPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+              </View>
+              <View style={styles.photoRow}>
+                {guestPhotoUri ? (
+                  <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />
+                ) : (
+                  <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} /></View>
+                )}
+                <Button mode="outlined" onPress={pickGuestPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
+                  {guestPhotoUri ? 'Retake' : 'Add Photo'}
                 </Button>
-              </Card.Content>
-            </Card>
+              </View>
+              <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                Pre-approve Guest
+              </Button>
+            </View>
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Pending Approvals</Text>
               {pendingRequests.length > 0 && <Text style={styles.countBadge}>{pendingRequests.length}</Text>}
             </View>
             {pendingRequests.length === 0 && (
               <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
                 <Text style={styles.empty}>No pending requests</Text>
               </View>
             )}
             <FlatList data={pendingRequests} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated">
-                <Card.Content>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
                   <View style={styles.rowWithImage}>
                     {item.visitors?.photo_url ? (
                       <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
@@ -370,17 +388,17 @@ export default function ResidentHome() {
                       <Text style={styles.meta}>{item.visitors?.visitor_type}{item.visitors?.phone ? ` · ${item.visitors.phone}` : ''}</Text>
                     </View>
                   </View>
-                </Card.Content>
-                <Divider style={{ marginTop: 8 }} />
-                <Card.Actions>
-                  <Button textColor="#c62828" onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
-                  <Button mode="contained" buttonColor={PRIMARY} onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
-                </Card.Actions>
-              </Card>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}>
+                  <Button textColor={DANGER} onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
+                  <Button mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
+                </View>
+              </View>
             )} />
 
             <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-              <Avatar.Icon size={30} icon="history" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="history" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>History</Text>
             </View>
             {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
@@ -395,13 +413,13 @@ export default function ResidentHome() {
                   <Text style={styles.historyName}>{item.visitors?.name}</Text>
                   <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleDateString()}</Text>
                 </View>
-                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: item.status === 'approved' ? '#2e7d32' : '#c62828' }} style={{ backgroundColor: item.status === 'approved' ? '#e8f5e9' : '#fdecea' }}>
+                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: item.status === 'approved' ? SUCCESS : DANGER }} style={{ backgroundColor: item.status === 'approved' ? SUCCESS_BG : DANGER_BG }}>
                   {item.pre_approved ? 'pre-approved' : item.status}
                 </Chip>
               </View>
             )} />
             {pastRequests.length > 5 && (
-              <Button compact textColor={PRIMARY} onPress={() => setShowAllHistory(!showAllHistory)}>
+              <Button compact textColor={ACCENT} onPress={() => setShowAllHistory(!showAllHistory)}>
                 {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
               </Button>
             )}
@@ -411,26 +429,26 @@ export default function ResidentHome() {
         {tab === 'notices' && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Society Notices</Text>
             </View>
             {notices.length === 0 && (
               <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="bullhorn-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Avatar.Icon size={44} icon="bullhorn-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
                 <Text style={styles.empty}>No notices yet</Text>
               </View>
             )}
             <FlatList data={visibleNotices} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated">
-                <Card.Content>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
                   <Text style={styles.visitorName}>{item.title}</Text>
                   <Text style={styles.noticeBody}>{item.body}</Text>
                   <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                </Card.Content>
-              </Card>
+                </View>
+              </View>
             )} />
             {notices.length > 5 && (
-              <Button compact textColor={PRIMARY} onPress={() => setShowAllNotices(!showAllNotices)}>
+              <Button compact textColor={ACCENT} onPress={() => setShowAllNotices(!showAllNotices)}>
                 {showAllNotices ? 'Show less' : `View all (${notices.length})`}
               </Button>
             )}
@@ -440,31 +458,31 @@ export default function ResidentHome() {
         {tab === 'polls' && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Community Polls</Text>
             </View>
             {polls.length === 0 && (
               <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="poll" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Avatar.Icon size={44} icon="poll" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
                 <Text style={styles.empty}>No polls yet</Text>
               </View>
             )}
             {visiblePolls.map((poll) => (
-              <Card key={poll.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-                <Card.Content>
+              <View key={poll.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
                   <Text style={styles.visitorName}>{poll.question}</Text>
                   {poll.poll_options?.map((opt) => (
                     <View key={opt.id} style={styles.pollOptionRow}>
                       <Text style={styles.pollOptionText}>{opt.option_text} — {voteCount(opt.id)} votes</Text>
-                      {!hasVoted(poll.id) && <Button mode="outlined" compact textColor={PRIMARY} onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
+                      {!hasVoted(poll.id) && <Button mode="outlined" compact textColor={ACCENT} style={{ borderColor: ACCENT }} onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
                     </View>
                   ))}
                   {hasVoted(poll.id) && <Text style={styles.votedLabel}>✓ You voted</Text>}
-                </Card.Content>
-              </Card>
+                </View>
+              </View>
             ))}
             {polls.length > 3 && (
-              <Button compact textColor={PRIMARY} onPress={() => setShowAllPolls(!showAllPolls)}>
+              <Button compact textColor={ACCENT} onPress={() => setShowAllPolls(!showAllPolls)}>
                 {showAllPolls ? 'Show less' : `View all (${polls.length})`}
               </Button>
             )}
@@ -473,37 +491,39 @@ export default function ResidentHome() {
 
         {tab === 'helpdesk' && (
           <>
-            <Card style={styles.sectionCard} mode="elevated">
-              <Card.Content>
-                <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={PRIMARY} />
-                  <Text style={styles.sectionTitle}>Raise a Ticket</Text>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Raise a Ticket</Text>
+              </View>
+              <View style={styles.chipSelectRow}>
+                {['general', 'maintenance', 'security', 'other'].map((c) => (
+                  <Chip key={c} selected={ticketCategory === c} onPress={() => setTicketCategory(c)} style={[styles.tabChip, ticketCategory === c && styles.tabChipSelected]} textStyle={ticketCategory === c ? { color: '#fff' } : { color: INK_MUTED }}>
+                    {c}
+                  </Chip>
+                ))}
+              </View>
+              {ticketCategory === 'other' && (
+                <View style={styles.inputWrap}>
+                  <TextInput mode="flat" label="Specify category" value={customCategory} onChangeText={setCustomCategory} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
                 </View>
-                <View style={styles.chipSelectRow}>
-                  {['general', 'maintenance', 'security', 'other'].map((c) => (
-                    <Chip key={c} selected={ticketCategory === c} onPress={() => setTicketCategory(c)} style={[styles.tabChip, ticketCategory === c && { backgroundColor: PRIMARY }]} textStyle={ticketCategory === c ? { color: 'white' } : {}}>
-                      {c}
-                    </Chip>
-                  ))}
-                </View>
-                {ticketCategory === 'other' && (
-                  <TextInput mode="outlined" label="Specify category" value={customCategory} onChangeText={setCustomCategory} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                )}
-                <TextInput mode="outlined" label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-                  Submit Ticket
-                </Button>
-              </Card.Content>
-            </Card>
+              )}
+              <View style={styles.inputWrap}>
+                <TextInput mode="flat" label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+              </View>
+              <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                Submit Ticket
+              </Button>
+            </View>
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="ticket-confirmation" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="ticket-confirmation" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>My Tickets</Text>
             </View>
             {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
             <FlatList data={tickets} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated">
-                <Card.Content>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
                   <View style={styles.row}>
                     <Text style={styles.visitorName}>{item.category}</Text>
                     <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>
@@ -512,8 +532,8 @@ export default function ResidentHome() {
                   </View>
                   <Text style={styles.noticeBody}>{item.description}</Text>
                   <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                </Card.Content>
-              </Card>
+                </View>
+              </View>
             )} />
           </>
         )}
@@ -521,10 +541,10 @@ export default function ResidentHome() {
         {tab === 'amenities' && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="calendar-check" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="calendar-check" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Book an Amenity</Text>
             </View>
-            <Button mode="outlined" onPress={() => setShowDatePicker(true)} icon="calendar" textColor={PRIMARY} style={[styles.input, { borderColor: '#d9d0ee' }]}>
+            <Button mode="outlined" onPress={() => setShowDatePicker(true)} icon="calendar" textColor={ACCENT} style={[styles.dateButton]}>
               {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
             </Button>
             {showDatePicker && (
@@ -532,33 +552,33 @@ export default function ResidentHome() {
             )}
             {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
             {amenities.map((amenity) => (
-              <Card key={amenity.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-                <Card.Content>
+              <View key={amenity.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
                   <Text style={styles.visitorName}>{amenity.name}</Text>
                   <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
                   <View style={styles.slotWrap}>
                     {amenity.slots.map((slot) => (
-                      <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip} textStyle={{ fontSize: 12 }}>{slot}</Chip>
+                      <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip} textStyle={{ fontSize: 12, color: INK }}>{slot}</Chip>
                     ))}
                   </View>
-                </Card.Content>
-              </Card>
+                </View>
+              </View>
             ))}
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>My Bookings</Text>
             </View>
             {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
             <FlatList data={myBookings} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated">
-                <Card.Content>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
                   <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
                   <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
-                </Card.Content>
-                <Divider style={{ marginTop: 6 }} />
-                <Card.Actions><Button compact textColor="#c62828" onPress={() => cancelMyBooking(item.id)}>Cancel</Button></Card.Actions>
-              </Card>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => cancelMyBooking(item.id)}>Cancel</Button></View>
+              </View>
             )} />
           </>
         )}
@@ -566,13 +586,13 @@ export default function ResidentHome() {
         {tab === 'staff' && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-hard-hat" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="account-hard-hat" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Staff & Service Directory</Text>
             </View>
             {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
             {staff.map((s) => (
-              <Card key={s.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-                <Card.Content>
+              <View key={s.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
                   <View style={styles.rowWithImage}>
                     {s.photo_url ? (
                       <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
@@ -584,8 +604,8 @@ export default function ResidentHome() {
                       <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
                     </View>
                   </View>
-                </Card.Content>
-              </Card>
+                </View>
+              </View>
             ))}
           </>
         )}
@@ -597,50 +617,58 @@ export default function ResidentHome() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f7f5fb' },
+  screen: { flex: 1, backgroundColor: PAGE_BG },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#ece7f5',
+    backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: PRIMARY, letterSpacing: 1.5, marginBottom: 2 },
-  title: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
-  logoutBtn: { backgroundColor: '#f3effa', margin: 0 },
-  tabBar: { backgroundColor: '#fff', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
-  tabChip: { backgroundColor: '#f3effa' },
+  eyebrow: { fontSize: 11, fontWeight: '700', color: ACCENT, letterSpacing: 1.5, marginBottom: 2 },
+  title: { fontSize: 22, fontWeight: '700', color: INK },
+  logoutBtn: { backgroundColor: ACCENT_SOFT, margin: 0 },
+  tabBar: { backgroundColor: CARD_BG, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
+  tabChip: { backgroundColor: INPUT_BG },
+  tabChipSelected: { backgroundColor: ACCENT },
   container: { padding: 20, paddingBottom: 12 },
-  sectionCard: { marginBottom: 24, borderRadius: 16, backgroundColor: '#fff' },
+  sectionCard: {
+    marginBottom: 24, borderRadius: 20, backgroundColor: CARD_BG,
+    borderWidth: 1, borderColor: BORDER, padding: 20,
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
+  },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
-  sectionIcon: { backgroundColor: '#ede7f6' },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1e1b2e', flex: 1 },
-  countBadge: { fontSize: 12, fontWeight: '700', color: PRIMARY, backgroundColor: '#ede7f6', paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
-  input: { marginBottom: 14, backgroundColor: '#fff' },
+  sectionIcon: { backgroundColor: ACCENT_SOFT },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: INK, flex: 1 },
+  countBadge: { fontSize: 12, fontWeight: '700', color: '#fff', backgroundColor: ACCENT, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 12, overflow: 'hidden' },
+  inputWrap: { backgroundColor: INPUT_BG, borderRadius: 14, borderWidth: 1.5, borderColor: 'transparent', marginBottom: 14 },
+  input: { backgroundColor: 'transparent' },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   previewImage: { width: 60, height: 60, borderRadius: 12 },
-  photoPlaceholder: { width: 60, height: 60, borderRadius: 12, backgroundColor: '#f3effa', borderWidth: 1, borderColor: '#e2ddef', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-  photoButton: { flex: 1, borderColor: '#d9d0ee' },
-  submitButton: { borderRadius: 10, marginTop: 4 },
+  photoPlaceholder: { width: 60, height: 60, borderRadius: 12, backgroundColor: INPUT_BG, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  photoButton: { flex: 1, borderColor: ACCENT },
+  submitButton: { borderRadius: 14, marginTop: 4 },
+  dateButton: { borderColor: ACCENT, borderRadius: 14, marginBottom: 14, backgroundColor: CARD_BG },
   chipSelectRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
-  card: { borderRadius: 14, backgroundColor: '#fff' },
+  card: { borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
+  cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 4 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  visitorName: { fontSize: 16, fontWeight: '700', color: '#1e1b2e' },
-  meta: { color: '#6b6480', marginTop: 3, fontSize: 13 },
-  metaFaint: { color: '#a49cbe', marginTop: 4, fontSize: 12 },
+  visitorName: { fontSize: 16, fontWeight: '700', color: INK },
+  meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
+  metaFaint: { color: INK_FAINT, marginTop: 4, fontSize: 12 },
   thumb: { width: 52, height: 52, borderRadius: 26 },
-  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
   thumbSmall: { width: 40, height: 40, borderRadius: 20 },
-  thumbPlaceholderSmall: { width: 40, height: 40, borderRadius: 20, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholderSmall: { width: 40, height: 40, borderRadius: 20, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitialSmall: { color: 'white', fontSize: 15, fontWeight: '700' },
-  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
-  historyName: { fontSize: 14, fontWeight: '600', color: '#1e1b2e' },
-  noticeBody: { color: '#4a4560', marginTop: 4, lineHeight: 20 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
+  historyName: { fontSize: 14, fontWeight: '600', color: INK },
+  noticeBody: { color: INK_MUTED, marginTop: 4, lineHeight: 20 },
   pollOptionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  pollOptionText: { flex: 1, color: '#4a4560' },
-  votedLabel: { color: '#2e7d32', marginTop: 10, fontWeight: '600', fontSize: 13 },
+  pollOptionText: { flex: 1, color: INK_MUTED },
+  votedLabel: { color: SUCCESS, marginTop: 10, fontWeight: '600', fontSize: 13 },
   slotWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  slotChip: { marginBottom: 4, backgroundColor: '#f3effa' },
+  slotChip: { marginBottom: 4, backgroundColor: INPUT_BG },
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 10 },
-  empty: { color: '#8a82a6', fontSize: 14 },
+  empty: { color: INK_FAINT, fontSize: 14 },
 });

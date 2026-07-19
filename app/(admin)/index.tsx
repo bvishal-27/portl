@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image } from 'react-native';
-import { Button, Card, Chip, TextInput, SegmentedButtons, Avatar, Divider, IconButton } from 'react-native-paper';
+import { Button, Chip, TextInput, SegmentedButtons, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
@@ -8,7 +8,23 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-const PRIMARY = '#673AB7';
+// ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard / Resident) ----
+const INK = '#15131F';
+const INK_MUTED = '#6B6878';
+const INK_FAINT = '#A6A3B3';
+const ACCENT = '#4F3FE0';
+const ACCENT_SOFT = '#EFECFD';
+const GOLD = '#C9922B';
+const PAGE_BG = '#FAFAFC';
+const CARD_BG = '#FFFFFF';
+const BORDER = '#ECEAF2';
+const INPUT_BG = '#F5F4F9';
+const SUCCESS = '#1E9E5A';
+const SUCCESS_BG = '#E9F8EF';
+const DANGER = '#C23B3B';
+const DANGER_BG = '#FBEAEA';
+const WARN = '#C9922B';
+const WARN_BG = '#FBF3E4';
 
 type VisitorRequest = {
   id: string;
@@ -324,15 +340,17 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter);
-  const statusColor = (s: string) => (s === 'approved' ? '#2e7d32' : s === 'denied' ? '#c62828' : '#ef6c00');
-  const statusBg = (s: string) => (s === 'approved' ? '#e8f5e9' : s === 'denied' ? '#fdecea' : '#fff3e0');
-  const ticketStatusColor = (s: string) => (s === 'resolved' ? '#2e7d32' : s === 'in_progress' ? '#ef6c00' : '#616161');
-  const ticketStatusBg = (s: string) => (s === 'resolved' ? '#e8f5e9' : s === 'in_progress' ? '#fff3e0' : '#f0f0f0');
+  const statusColor = (s: string) => (s === 'approved' ? SUCCESS : s === 'denied' ? DANGER : WARN);
+  const statusBg = (s: string) => (s === 'approved' ? SUCCESS_BG : s === 'denied' ? DANGER_BG : WARN_BG);
+  const ticketStatusColor = (s: string) => (s === 'resolved' ? SUCCESS : s === 'in_progress' ? WARN : INK_MUTED);
+  const ticketStatusBg = (s: string) => (s === 'resolved' ? SUCCESS_BG : s === 'in_progress' ? WARN_BG : INPUT_BG);
   const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
   const towerNameFor = (id: string) => towers.find((t) => t.id === id)?.name ?? 'Unknown';
   const flatNumberFor = (id: string | null) => flats.find((f) => f.id === id)?.flat_number ?? '—';
   const pendingResidents = residents.filter((r) => !r.approved);
   const approvedResidents = residents.filter((r) => r.approved);
+
+  const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
   return (
     <View style={styles.screen}>
@@ -341,7 +359,7 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
           <Text style={styles.eyebrow}>PORTL</Text>
           <Text style={styles.title}>Admin</Text>
         </View>
-        <IconButton icon="logout" size={22} iconColor={PRIMARY} onPress={handleLogout} style={styles.logoutBtn} />
+        <IconButton icon="logout" size={22} iconColor={ACCENT} onPress={handleLogout} style={styles.logoutBtn} />
       </View>
 
       <View style={styles.tabBar}>
@@ -352,8 +370,8 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
               icon={t.icon}
               selected={tab === t.key}
               onPress={() => setTab(t.key)}
-              style={[styles.tabChip, tab === t.key && { backgroundColor: PRIMARY }]}
-              textStyle={tab === t.key ? { color: 'white', fontWeight: '600' } : { color: '#4a4560' }}
+              style={[styles.tabChip, tab === t.key && styles.tabChipSelected]}
+              textStyle={tab === t.key ? { color: '#fff', fontWeight: '600' } : { color: INK_MUTED }}
             >
               {t.label}{t.key === 'society' && pendingResidents.length > 0 ? ` (${pendingResidents.length})` : ''}
             </Chip>
@@ -365,29 +383,29 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
         {tab === 'visitors' && (
           <>
             <View style={styles.statsRow}>
-              <Card style={styles.statCard} mode="elevated"><Card.Content style={styles.statContent}><Text style={styles.statNum}>{todayCount}</Text><Text style={styles.statLabel}>Today</Text></Card.Content></Card>
-              <Card style={styles.statCard} mode="elevated"><Card.Content style={styles.statContent}><Text style={[styles.statNum, { color: '#ef6c00' }]}>{pendingCount}</Text><Text style={styles.statLabel}>Pending</Text></Card.Content></Card>
-              <Card style={styles.statCard} mode="elevated"><Card.Content style={styles.statContent}><Text style={styles.statNum}>{requests.length}</Text><Text style={styles.statLabel}>Total</Text></Card.Content></Card>
+              <View style={styles.statCard}><Text style={styles.statNum}>{todayCount}</Text><Text style={styles.statLabel}>Today</Text></View>
+              <View style={styles.statCard}><Text style={[styles.statNum, { color: WARN }]}>{pendingCount}</Text><Text style={styles.statLabel}>Pending</Text></View>
+              <View style={styles.statCard}><Text style={styles.statNum}>{requests.length}</Text><Text style={styles.statLabel}>Total</Text></View>
             </View>
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="clipboard-list" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="clipboard-list" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Society Visitor Log</Text>
             </View>
             <View style={styles.filterRow}>
               {['all', 'pending', 'approved', 'denied'].map((f) => (
-                <Chip key={f} selected={filter === f} onPress={() => setFilter(f)} style={styles.filterChip} selectedColor={PRIMARY}>{f}</Chip>
+                <Chip key={f} selected={filter === f} onPress={() => setFilter(f)} style={[styles.filterChip, filter === f && styles.chipSelected]} textStyle={filter === f ? styles.chipTextSelected : styles.chipText}>{f}</Chip>
               ))}
             </View>
             {filtered.length === 0 && (
               <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="clipboard-search-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+                <Avatar.Icon size={44} icon="clipboard-search-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
                 <Text style={styles.empty}>No visitor records</Text>
               </View>
             )}
            <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-  <Card style={styles.card} mode="elevated">
-    <Card.Content>
+  <View style={styles.card}>
+    <View style={{ padding: 16 }}>
       <View style={styles.rowWithImage}>
         {item.visitors?.photo_url ? (
           <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
@@ -405,78 +423,76 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
           <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
         </View>
       </View>
-    </Card.Content>
-    <Divider style={{ marginTop: 8 }} />
-    <Card.Actions style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+    </View>
+    <Divider style={{ backgroundColor: BORDER }} />
+    <View style={[styles.cardActions, { flexWrap: 'wrap' }]}>
   {item.status !== 'approved' && (
-    <IconButton icon="check-circle" iconColor="#2e7d32" size={20} onPress={() => overrideVisitorStatus(item.id, 'approved')} />
+    <IconButton icon="check-circle" iconColor={SUCCESS} size={20} onPress={() => overrideVisitorStatus(item.id, 'approved')} />
   )}
   {item.status !== 'denied' && (
-    <IconButton icon="close-circle" iconColor="#ef6c00" size={20} onPress={() => overrideVisitorStatus(item.id, 'denied')} />
+    <IconButton icon="close-circle" iconColor={WARN} size={20} onPress={() => overrideVisitorStatus(item.id, 'denied')} />
   )}
-  <IconButton icon="delete" iconColor="#c62828" size={20} onPress={() => deleteVisitorRequest(item.id, item.visitors?.name ?? 'visitor')} />
-</Card.Actions>
-  </Card>
+  <IconButton icon="delete" iconColor={DANGER} size={20} onPress={() => deleteVisitorRequest(item.id, item.visitors?.name ?? 'visitor')} />
+</View>
+  </View>
 )} />
           </>
         )}
 
         {tab === 'notices' && (
   <View>
-    <Card style={styles.sectionCard} mode="elevated">
-      <Card.Content>
-        <View style={styles.sectionHeaderRow}>
-          <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={PRIMARY} />
-          <Text style={styles.sectionTitle}>Post a Notice</Text>
-        </View>
-        <TextInput mode="outlined" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-        <TextInput mode="outlined" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-        <Button mode="contained" onPress={handleCreateNotice} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
-      </Card.Content>
-    </Card>
+    <View style={styles.sectionCard}>
+      <View style={styles.sectionHeaderRow}>
+        <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+        <Text style={styles.sectionTitle}>Post a Notice</Text>
+      </View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <Button mode="contained" onPress={handleCreateNotice} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
+    </View>
     <View style={styles.sectionHeaderRow}>
-      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={PRIMARY} />
+      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
       <Text style={styles.sectionTitle}>Posted Notices ({allNotices.length})</Text>
     </View>
     {allNotices.map((n) => (
-      <Card key={n.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-        <Text style={styles.visitorName}>{n.title}</Text>
-        <Text style={styles.meta}>{n.body}</Text>
-        <Text style={styles.metaFaint}>{new Date(n.created_at).toLocaleString()}</Text>
-      </Card.Content>
-        <Divider style={{ marginTop: 6 }} />
-        <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteNotice(n.id)}>Delete</Button></Card.Actions>
-      </Card>
+      <View key={n.id} style={[styles.card, { marginBottom: 12 }]}>
+        <View style={{ padding: 16 }}>
+          <Text style={styles.visitorName}>{n.title}</Text>
+          <Text style={styles.meta}>{n.body}</Text>
+          <Text style={styles.metaFaint}>{new Date(n.created_at).toLocaleString()}</Text>
+        </View>
+        <Divider style={{ backgroundColor: BORDER }} />
+        <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteNotice(n.id)}>Delete</Button></View>
+      </View>
     ))}
   </View>
 )}
 
         {tab === 'polls' && (
   <View>
-    <Card style={styles.sectionCard} mode="elevated">
-      <Card.Content>
-        <View style={styles.sectionHeaderRow}>
-          <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={PRIMARY} />
-          <Text style={styles.sectionTitle}>Create a Poll</Text>
-        </View>
-        <TextInput mode="outlined" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-        <TextInput mode="outlined" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-        <TextInput mode="outlined" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-        <Button mode="contained" onPress={handleCreatePoll} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
-      </Card.Content>
-    </Card>
+    <View style={styles.sectionCard}>
+      <View style={styles.sectionHeaderRow}>
+        <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
+        <Text style={styles.sectionTitle}>Create a Poll</Text>
+      </View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <Button mode="contained" onPress={handleCreatePoll} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
+    </View>
     <View style={styles.sectionHeaderRow}>
-      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={PRIMARY} />
+      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
       <Text style={styles.sectionTitle}>Active Polls ({allPolls.length})</Text>
     </View>
     {allPolls.map((p) => (
-      <Card key={p.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-        <Text style={styles.visitorName}>{p.question}</Text>
-        <Text style={styles.metaFaint}>{new Date(p.created_at).toLocaleString()}</Text>
-      </Card.Content>
-        <Divider style={{ marginTop: 6 }} />
-        <Card.Actions><Button compact textColor="#c62828" onPress={() => deletePoll(p.id)}>Delete</Button></Card.Actions>
-      </Card>
+      <View key={p.id} style={[styles.card, { marginBottom: 12 }]}>
+        <View style={{ padding: 16 }}>
+          <Text style={styles.visitorName}>{p.question}</Text>
+          <Text style={styles.metaFaint}>{new Date(p.created_at).toLocaleString()}</Text>
+        </View>
+        <Divider style={{ backgroundColor: BORDER }} />
+        <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deletePoll(p.id)}>Delete</Button></View>
+      </View>
     ))}
   </View>
 )}
@@ -484,71 +500,71 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
         {tab === 'tickets' && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>All Tickets</Text>
             </View>
             {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
             <FlatList data={tickets} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated"><Card.Content>
-                <View style={styles.row}>
-                  <Text style={styles.visitorName}>{item.category}</Text>
-                  <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>{item.status.replace('_', ' ')}</Chip>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>{item.category}</Text>
+                    <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>{item.status.replace('_', ' ')}</Chip>
+                  </View>
+                  <Text style={styles.meta}>{item.description}</Text>
+                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
                 </View>
-                <Text style={styles.meta}>{item.description}</Text>
-                <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-              </Card.Content>
-                <Divider style={{ marginTop: 8 }} />
-                <Card.Actions>
-                  {item.status !== 'in_progress' && <Button compact textColor={PRIMARY} onPress={() => updateTicketStatus(item.id, 'in_progress')}>In Progress</Button>}
-                  {item.status !== 'resolved' && <Button compact mode="contained" buttonColor={PRIMARY} onPress={() => updateTicketStatus(item.id, 'resolved')}>Resolve</Button>}
-                </Card.Actions>
-              </Card>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}>
+                  {item.status !== 'in_progress' && <Button compact textColor={ACCENT} onPress={() => updateTicketStatus(item.id, 'in_progress')}>In Progress</Button>}
+                  {item.status !== 'resolved' && <Button compact mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => updateTicketStatus(item.id, 'resolved')}>Resolve</Button>}
+                </View>
+              </View>
             )} />
           </>
         )}
 
         {tab === 'amenities' && (
           <>
-            <Card style={styles.sectionCard} mode="elevated">
-              <Card.Content>
-                <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon size={30} icon="calendar-plus" style={styles.sectionIcon} color={PRIMARY} />
-                  <Text style={styles.sectionTitle}>Add Amenity</Text>
-                </View>
-                <TextInput mode="outlined" label="Amenity name" value={amenityName} onChangeText={setAmenityName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                <TextInput mode="outlined" label="Capacity per slot" value={amenityCapacity} onChangeText={setAmenityCapacity} keyboardType="numeric" style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                <Button mode="contained" onPress={handleCreateAmenity} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Amenity</Button>
-              </Card.Content>
-            </Card>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="calendar-plus" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Add Amenity</Text>
+              </View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Amenity name" value={amenityName} onChangeText={setAmenityName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Capacity per slot" value={amenityCapacity} onChangeText={setAmenityCapacity} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <Button mode="contained" onPress={handleCreateAmenity} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Amenity</Button>
+            </View>
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="pool" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="pool" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Amenities ({amenities.length})</Text>
             </View>
             {amenities.map((a) => (
-  <Card key={a.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-    <Card.Content>
+  <View key={a.id} style={[styles.card, { marginBottom: 12 }]}>
+    <View style={{ padding: 16 }}>
       <Text style={styles.visitorName}>{a.name}</Text>
       <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
-    </Card.Content>
-    <Divider style={{ marginTop: 6 }} />
-    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteAmenity(a.id)}>Delete</Button></Card.Actions>
-  </Card>
+    </View>
+    <Divider style={{ backgroundColor: BORDER }} />
+    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteAmenity(a.id)}>Delete</Button></View>
+  </View>
 ))}
 
             <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={PRIMARY} />
+              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>All Bookings</Text>
             </View>
             {bookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
             <FlatList data={bookings} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <Card style={styles.card} mode="elevated"><Card.Content>
-                <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
-                <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
-              </Card.Content>
-                <Divider style={{ marginTop: 6 }} />
-                <Card.Actions><Button compact textColor="#c62828" onPress={() => cancelBooking(item.id)}>Cancel</Button></Card.Actions>
-              </Card>
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
+                  <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => cancelBooking(item.id)}>Cancel</Button></View>
+              </View>
             )} />
           </>
         )}
@@ -557,85 +573,82 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
           <View>
             <View style={styles.filterRow}>
               {['towers', 'flats', 'residents', 'staff'].map((s) => (
-                <Chip key={s} selected={societySubTab === s} onPress={() => setSocietySubTab(s)} style={styles.filterChip} selectedColor={PRIMARY}>
+                <Chip key={s} selected={societySubTab === s} onPress={() => setSocietySubTab(s)} style={[styles.filterChip, societySubTab === s && styles.chipSelected]} textStyle={societySubTab === s ? styles.chipTextSelected : styles.chipText}>
                   {s}{s === 'residents' && pendingResidents.length > 0 ? ` (${pendingResidents.length})` : ''}
                 </Chip>
               ))}
             </View>
 
             {societySubTab === 'towers' && (
-              <Card style={styles.sectionCard} mode="elevated">
-                <Card.Content>
-                  <TextInput mode="outlined" label="Tower name (e.g. Tower B)" value={towerName} onChangeText={setTowerName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                  <Button mode="contained" onPress={handleCreateTower} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Tower</Button>
-                </Card.Content>
-              </Card>
+              <View style={styles.sectionCard}>
+                <View style={styles.inputWrap}><TextInput mode="flat" label="Tower name (e.g. Tower B)" value={towerName} onChangeText={setTowerName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                <Button mode="contained" onPress={handleCreateTower} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Tower</Button>
+              </View>
             )}
             {societySubTab === 'towers' && towers.map((t) => (
-  <Card key={t.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-    <Card.Content><Text style={styles.visitorName}>{t.name}</Text></Card.Content>
-    <Divider style={{ marginTop: 6 }} />
-    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteTower(t.id)}>Delete</Button></Card.Actions>
-  </Card>
+  <View key={t.id} style={[styles.card, { marginBottom: 12 }]}>
+    <View style={{ padding: 16 }}><Text style={styles.visitorName}>{t.name}</Text></View>
+    <Divider style={{ backgroundColor: BORDER }} />
+    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteTower(t.id)}>Delete</Button></View>
+  </View>
 ))}
 
             {societySubTab === 'flats' && (
-              <Card style={styles.sectionCard} mode="elevated">
-                <Card.Content>
-                  <Text style={styles.fieldLabel}>Select tower, then add flat</Text>
-                  <View style={styles.filterRow}>
-                    {towers.map((t) => (
-                      <Chip key={t.id} selected={flatTowerId === t.id} onPress={() => setFlatTowerId(t.id)} style={styles.filterChip} selectedColor={PRIMARY}>{t.name}</Chip>
-                    ))}
-                  </View>
-                  <TextInput mode="outlined" label="Flat number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                  <Button mode="contained" onPress={handleCreateFlat} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Flat</Button>
-                </Card.Content>
-              </Card>
+              <View style={styles.sectionCard}>
+                <Text style={styles.fieldLabel}>Select tower, then add flat</Text>
+                <View style={styles.filterRow}>
+                  {towers.map((t) => (
+                    <Chip key={t.id} selected={flatTowerId === t.id} onPress={() => setFlatTowerId(t.id)} style={[styles.filterChip, flatTowerId === t.id && styles.chipSelected]} textStyle={flatTowerId === t.id ? styles.chipTextSelected : styles.chipText}>{t.name}</Chip>
+                  ))}
+                </View>
+                <View style={styles.inputWrap}><TextInput mode="flat" label="Flat number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                <Button mode="contained" onPress={handleCreateFlat} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Flat</Button>
+              </View>
             )}
             {societySubTab === 'flats' && flats.map((f) => (
-  <Card key={f.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-    <Card.Content>
+  <View key={f.id} style={[styles.card, { marginBottom: 12 }]}>
+    <View style={{ padding: 16 }}>
       <Text style={styles.visitorName}>Flat {f.flat_number}</Text>
       <Text style={styles.meta}>{towerNameFor(f.tower_id)}</Text>
-    </Card.Content>
-    <Divider style={{ marginTop: 6 }} />
-    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteFlat(f.id)}>Delete</Button></Card.Actions>
-  </Card>
+    </View>
+    <Divider style={{ backgroundColor: BORDER }} />
+    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteFlat(f.id)}>Delete</Button></View>
+  </View>
 ))}
 
             {societySubTab === 'residents' && (
               <View>
                 <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon size={30} icon="account-alert" style={{ backgroundColor: '#fff3e0' }} color="#ef6c00" />
+                  <Avatar.Icon size={30} icon="account-alert" style={{ backgroundColor: WARN_BG }} color={WARN} />
                   <Text style={styles.sectionTitle}>Pending Approval ({pendingResidents.length})</Text>
                 </View>
                 {pendingResidents.length === 0 && <Text style={styles.empty}>No pending requests</Text>}
                 {pendingResidents.map((r) => (
-                  <Card key={r.id} style={[styles.card, styles.pendingCard]} mode="elevated"><Card.Content>
-                    <View style={styles.rowWithImage}>
-                      <View style={[styles.thumbPlaceholder, { backgroundColor: '#ef6c00' }]}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                      <View>
-                        <Text style={styles.visitorName}>{r.full_name}</Text>
-                        <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                  <View key={r.id} style={[styles.card, styles.pendingCard]}>
+                    <View style={{ padding: 16 }}>
+                      <View style={styles.rowWithImage}>
+                        <View style={[styles.thumbPlaceholder, { backgroundColor: WARN }]}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                        <View>
+                          <Text style={styles.visitorName}>{r.full_name}</Text>
+                          <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                        </View>
                       </View>
                     </View>
-                  </Card.Content>
-                    <Divider style={{ marginTop: 8 }} />
-                    <Card.Actions>
-                      <Button compact textColor="#c62828" onPress={() => rejectResident(r.id)}>Reject</Button>
-                      <Button compact mode="contained" buttonColor={PRIMARY} onPress={() => approveResident(r.id)}>Approve</Button>
-                    </Card.Actions>
-                  </Card>
+                    <Divider style={{ backgroundColor: BORDER }} />
+                    <View style={styles.cardActions}>
+                      <Button compact textColor={DANGER} onPress={() => rejectResident(r.id)}>Reject</Button>
+                      <Button compact mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => approveResident(r.id)}>Approve</Button>
+                    </View>
+                  </View>
                 ))}
 
                 <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-                  <Avatar.Icon size={30} icon="account-group" style={styles.sectionIcon} color={PRIMARY} />
+                  <Avatar.Icon size={30} icon="account-group" style={styles.sectionIcon} color={ACCENT} />
                   <Text style={styles.sectionTitle}>All Residents ({approvedResidents.length})</Text>
                 </View>
                 {approvedResidents.map((r) => (
-  <Card key={r.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated">
-    <Card.Content>
+  <View key={r.id} style={[styles.card, { marginBottom: 12 }]}>
+    <View style={{ padding: 16 }}>
       <View style={styles.rowWithImage}>
         <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
         <View>
@@ -652,8 +665,8 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
                 key={f.id}
                 selected={r.flat_id === f.id}
                 onPress={() => { reassignResidentFlat(r.id, f.id); setReassigningId(null); }}
-                style={styles.filterChip}
-                selectedColor={PRIMARY}
+                style={[styles.filterChip, r.flat_id === f.id && styles.chipSelected]}
+                textStyle={r.flat_id === f.id ? styles.chipTextSelected : styles.chipText}
               >
                 {f.flat_number}
               </Chip>
@@ -661,67 +674,66 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
           </View>
         </View>
       )}
-    </Card.Content>
-    <Divider style={{ marginTop: 8 }} />
-    <Card.Actions>
-      <Button compact textColor={PRIMARY} onPress={() => setReassigningId(reassigningId === r.id ? null : r.id)}>
+    </View>
+    <Divider style={{ backgroundColor: BORDER }} />
+    <View style={styles.cardActions}>
+      <Button compact textColor={ACCENT} onPress={() => setReassigningId(reassigningId === r.id ? null : r.id)}>
         {reassigningId === r.id ? 'Cancel' : 'Reassign Flat'}
       </Button>
-      <Button compact textColor="#c62828" onPress={() => deleteResident(r.id, r.full_name)}>Remove</Button>
-    </Card.Actions>
-  </Card>
+      <Button compact textColor={DANGER} onPress={() => deleteResident(r.id, r.full_name)}>Remove</Button>
+    </View>
+  </View>
 ))}
               </View>
             )}
 
             {societySubTab === 'staff' && (
               <View>
-                <Card style={styles.sectionCard} mode="elevated">
-                  <Card.Content>
-                    <TextInput mode="outlined" label="Staff/service name" value={staffName} onChangeText={setStaffName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                    <SegmentedButtons
-                      value={staffType}
-                      onValueChange={setStaffType}
-                      style={styles.input}
-                      theme={{ colors: { secondaryContainer: '#ede7f6', onSecondaryContainer: PRIMARY } }}
-                      buttons={[
-                        { value: 'plumber', label: 'Plumber' },
-                        { value: 'electrician', label: 'Electrician' },
-                        { value: 'milkman', label: 'Milkman' },
-                        { value: 'other', label: 'Other' },
-                      ]}
-                    />
-                    <TextInput mode="outlined" label="Phone" value={staffPhone} onChangeText={setStaffPhone} keyboardType="phone-pad" style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-                    <View style={styles.photoRow}>
-                      {staffPhotoUri ? (
-                        <Image source={{ uri: staffPhotoUri }} style={styles.previewImage} />
-                      ) : (
-                        <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color="#b3a6d6" /></View>
-                      )}
-                      <Button mode="outlined" onPress={pickStaffPhoto} icon="camera" textColor={PRIMARY} style={styles.photoButton}>
-                        {staffPhotoUri ? 'Retake' : 'Add Photo'}
-                      </Button>
-                    </View>
-                    <Button mode="contained" onPress={handleCreateStaff} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add to Directory</Button>
-                  </Card.Content>
-                </Card>
+                <View style={styles.sectionCard}>
+                  <View style={styles.inputWrap}><TextInput mode="flat" label="Staff/service name" value={staffName} onChangeText={setStaffName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                  <SegmentedButtons
+                    value={staffType}
+                    onValueChange={setStaffType}
+                    style={styles.segmented}
+                    theme={{ colors: { secondaryContainer: ACCENT_SOFT, onSecondaryContainer: ACCENT } }}
+                    buttons={[
+                      { value: 'plumber', label: 'Plumber' },
+                      { value: 'electrician', label: 'Electrician' },
+                      { value: 'milkman', label: 'Milkman' },
+                      { value: 'other', label: 'Other' },
+                    ]}
+                  />
+                  <View style={styles.inputWrap}><TextInput mode="flat" label="Phone" value={staffPhone} onChangeText={setStaffPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                  <View style={styles.photoRow}>
+                    {staffPhotoUri ? (
+                      <Image source={{ uri: staffPhotoUri }} style={styles.previewImage} />
+                    ) : (
+                      <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} /></View>
+                    )}
+                    <Button mode="outlined" onPress={pickStaffPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
+                      {staffPhotoUri ? 'Retake' : 'Add Photo'}
+                    </Button>
+                  </View>
+                  <Button mode="contained" onPress={handleCreateStaff} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add to Directory</Button>
+                </View>
                 {staff.map((s) => (
-                  <Card key={s.id} style={[styles.card, { marginBottom: 12 }]} mode="elevated"><Card.Content>
-                    <View style={styles.rowWithImage}>
-                      {s.photo_url ? (
-                        <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
-                      ) : (
-                        <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
-                      )}
-                      <View>
-                        <Text style={styles.visitorName}>{s.name}</Text>
-                        <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+                  <View key={s.id} style={[styles.card, { marginBottom: 12 }]}>
+                    <View style={{ padding: 16 }}>
+                      <View style={styles.rowWithImage}>
+                        {s.photo_url ? (
+                          <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
+                        ) : (
+                          <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
+                        )}
+                        <View>
+                          <Text style={styles.visitorName}>{s.name}</Text>
+                          <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+                        </View>
                       </View>
                     </View>
-                  </Card.Content>
-                    <Divider style={{ marginTop: 8 }} />
-                    <Card.Actions><Button compact textColor="#c62828" onPress={() => deleteStaff(s.id)}>Remove</Button></Card.Actions>
-                  </Card>
+                    <Divider style={{ backgroundColor: BORDER }} />
+                    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteStaff(s.id)}>Remove</Button></View>
+                  </View>
                 ))}
               </View>
             )}
@@ -735,45 +747,54 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f7f5fb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: PRIMARY, letterSpacing: 1.5, marginBottom: 2 },
-  title: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
-  logoutBtn: { backgroundColor: '#f3effa', margin: 0 },
-  tabBar: { backgroundColor: '#fff', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ece7f5' },
-  tabChip: { backgroundColor: '#f3effa' },
+  screen: { flex: 1, backgroundColor: PAGE_BG },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14, backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER },
+  eyebrow: { fontSize: 11, fontWeight: '700', color: ACCENT, letterSpacing: 1.5, marginBottom: 2 },
+  title: { fontSize: 22, fontWeight: '700', color: INK },
+  logoutBtn: { backgroundColor: ACCENT_SOFT, margin: 0 },
+  tabBar: { backgroundColor: CARD_BG, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: BORDER },
+  tabChip: { backgroundColor: INPUT_BG },
+  tabChipSelected: { backgroundColor: ACCENT },
   container: { padding: 20, paddingBottom: 12 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  statCard: { flex: 1, borderRadius: 14 },
-  statContent: { alignItems: 'center', paddingVertical: 4 },
-  statNum: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
-  statLabel: { fontSize: 12, color: '#6b6480', marginTop: 2 },
-  sectionCard: { marginBottom: 24, borderRadius: 16, backgroundColor: '#fff' },
+  statCard: { flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14 },
+  statNum: { fontSize: 22, fontWeight: '700', color: INK },
+  statLabel: { fontSize: 12, color: INK_MUTED, marginTop: 2 },
+  sectionCard: {
+    marginBottom: 24, borderRadius: 20, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, padding: 20,
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.05, shadowRadius: 18, elevation: 2,
+  },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
-  sectionIcon: { backgroundColor: '#ede7f6' },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1e1b2e', flex: 1 },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 8 },
-  input: { marginBottom: 14, backgroundColor: '#fff' },
-  submitButton: { borderRadius: 10, marginTop: 4 },
+  sectionIcon: { backgroundColor: ACCENT_SOFT },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: INK, flex: 1 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: INK_MUTED, marginBottom: 8 },
+  inputWrap: { backgroundColor: INPUT_BG, borderRadius: 14, borderWidth: 1.5, borderColor: 'transparent', marginBottom: 14 },
+  input: { backgroundColor: 'transparent' },
+  segmented: { marginBottom: 14 },
+  submitButton: { borderRadius: 14, marginTop: 4 },
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
-  filterChip: { marginBottom: 4, backgroundColor: '#f3effa' },
-  card: { borderRadius: 14, backgroundColor: '#fff' },
-  pendingCard: { borderWidth: 1.5, borderColor: '#ef6c00', marginBottom: 12 },
+  filterChip: { marginBottom: 4, backgroundColor: INPUT_BG, borderWidth: 1, borderColor: 'transparent' },
+  chipSelected: { backgroundColor: ACCENT_SOFT, borderColor: ACCENT },
+  chipText: { color: INK_MUTED },
+  chipTextSelected: { color: INK, fontWeight: '600' },
+  card: { borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
+  cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 4 },
+  pendingCard: { borderWidth: 1.5, borderColor: WARN, marginBottom: 12 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  visitorName: { fontSize: 16, fontWeight: '700', color: '#1e1b2e' },
-  meta: { color: '#6b6480', marginTop: 3, fontSize: 13 },
-  metaFaint: { color: '#a49cbe', marginTop: 4, fontSize: 12 },
+  visitorName: { fontSize: 16, fontWeight: '700', color: INK },
+  meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
+  metaFaint: { color: INK_FAINT, marginTop: 4, fontSize: 12 },
   thumb: { width: 52, height: 52, borderRadius: 26 },
-  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
   thumbSmall: { width: 44, height: 44, borderRadius: 22 },
-  thumbPlaceholderSmall: { width: 44, height: 44, borderRadius: 22, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholderSmall: { width: 44, height: 44, borderRadius: 22, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitialSmall: { color: 'white', fontSize: 16, fontWeight: '700' },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   previewImage: { width: 60, height: 60, borderRadius: 12 },
-  photoPlaceholder: { width: 60, height: 60, borderRadius: 12, backgroundColor: '#f3effa', borderWidth: 1, borderColor: '#e2ddef', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-  photoButton: { flex: 1, borderColor: '#d9d0ee' },
+  photoPlaceholder: { width: 60, height: 60, borderRadius: 12, backgroundColor: INPUT_BG, borderWidth: 1, borderColor: BORDER, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
+  photoButton: { flex: 1, borderColor: ACCENT },
   emptyState: { alignItems: 'center', paddingVertical: 24, gap: 10 },
-  empty: { color: '#8a82a6', fontSize: 14 },
+  empty: { color: INK_FAINT, fontSize: 14 },
 });

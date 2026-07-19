@@ -1,12 +1,28 @@
 import { useEffect, useState, memo, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, FlatList, Alert, Image } from 'react-native';
-import { TextInput, Button, Card, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
+import { TextInput, Button, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
+
+// ---- Inline theme: light, minimal, premium (matches Login / Signup) ----
+const INK = '#15131F';
+const INK_MUTED = '#6B6878';
+const INK_FAINT = '#A6A3B3';
+const ACCENT = '#4F3FE0';
+const ACCENT_SOFT = '#EFECFD';
+const GOLD = '#C9922B';
+const PAGE_BG = '#FAFAFC';
+const CARD_BG = '#FFFFFF';
+const BORDER = '#ECEAF2';
+const INPUT_BG = '#F5F4F9';
+const SUCCESS = '#1E9E5A';
+const SUCCESS_BG = '#E9F8EF';
+const DANGER = '#C23B3B';
+const DANGER_BG = '#FBEAEA';
 
 type VisitorRequest = {
   id: string;
@@ -21,18 +37,16 @@ type VisitorRequest = {
 type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 
-const PRIMARY = '#673AB7';
-
 const statusColor = (status: string) => {
-  if (status === 'approved') return '#2e7d32';
-  if (status === 'denied') return '#c62828';
-  return '#ef6c00';
+  if (status === 'approved') return SUCCESS;
+  if (status === 'denied') return DANGER;
+  return GOLD;
 };
 
 const statusBg = (status: string) => {
-  if (status === 'approved') return '#e8f5e9';
-  if (status === 'denied') return '#fdecea';
-  return '#fff3e0';
+  if (status === 'approved') return SUCCESS_BG;
+  if (status === 'denied') return DANGER_BG;
+  return '#FBF3E4';
 };
 
 const VisitorCard = memo(function VisitorCard({
@@ -51,8 +65,8 @@ const VisitorCard = memo(function VisitorCard({
   markExit: (id: string) => void;
 }) {
   return (
-    <Card style={styles.card} mode="elevated">
-      <Card.Content>
+    <View style={styles.card}>
+      <View style={{ padding: 16 }}>
         <View style={styles.rowWithImage}>
           {item.visitors?.photo_url ? (
             <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
@@ -90,19 +104,21 @@ const VisitorCard = memo(function VisitorCard({
             )}
           </View>
         </View>
-      </Card.Content>
+      </View>
       {((item.status === 'approved' && !item.entry_time) || (item.entry_time && !item.exit_time)) ? (
         <View>
-          <Divider style={{ marginTop: 8 }} />
-          <Card.Actions>
+          <Divider style={{ backgroundColor: BORDER }} />
+          <View style={styles.cardActions}>
             {item.status === 'approved' && !item.entry_time && (
               <Button
                 mode="contained"
                 icon="login"
-                buttonColor={PRIMARY}
+                buttonColor={ACCENT}
+                textColor="#fff"
                 loading={actionLoadingId === item.id}
                 disabled={actionLoadingId === item.id}
                 onPress={() => markEntry(item.id)}
+                style={styles.actionBtn}
               >
                 Mark Entry
               </Button>
@@ -111,7 +127,8 @@ const VisitorCard = memo(function VisitorCard({
               <Button
                 mode="outlined"
                 icon="logout"
-                textColor={PRIMARY}
+                textColor={ACCENT}
+                style={[styles.actionBtn, { borderColor: ACCENT }]}
                 loading={actionLoadingId === item.id}
                 disabled={actionLoadingId === item.id}
                 onPress={() => markExit(item.id)}
@@ -119,10 +136,10 @@ const VisitorCard = memo(function VisitorCard({
                 Mark Exit
               </Button>
             )}
-          </Card.Actions>
+          </View>
         </View>
       ) : null}
-    </Card>
+    </View>
   );
 });
 
@@ -324,6 +341,8 @@ export default function GuardHome() {
     return sortOrder === 'newest' ? -diff : diff;
   });
 
+  const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -331,94 +350,105 @@ export default function GuardHome() {
           <Text style={styles.eyebrow}>PORTL</Text>
           <Text style={styles.title}>Guard Dashboard</Text>
         </View>
-        <IconButton icon="logout" size={22} iconColor={PRIMARY} onPress={handleLogout} style={styles.logoutBtn} />
+        <IconButton icon="logout" size={22} iconColor={ACCENT} onPress={handleLogout} style={styles.logoutBtn} />
       </View>
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <Card style={styles.sectionCard} mode="elevated">
-          <Card.Content>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={PRIMARY} />
-              <Text style={styles.sectionTitle}>Register Visitor</Text>
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
+            <Text style={styles.sectionTitle}>Register Visitor</Text>
+          </View>
+
+          <View style={styles.inputWrap}>
+            <TextInput mode="flat" label="Visitor Name" value={name} onChangeText={setName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+          </View>
+          <View style={styles.inputWrap}>
+            <TextInput mode="flat" label="Phone (optional)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+          </View>
+          <View style={styles.inputWrap}>
+            <TextInput mode="flat" label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+          </View>
+
+          <Text style={styles.fieldLabel}>Visitor Type</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
+            <View style={styles.typeChipRow}>
+              {[
+                { value: 'guest', label: 'Guest', icon: 'account' },
+                { value: 'delivery', label: 'Delivery', icon: 'package-variant' },
+                { value: 'cab', label: 'Cab', icon: 'car' },
+                { value: 'service', label: 'Service', icon: 'wrench' },
+                { value: 'other', label: 'Other', icon: 'dots-horizontal' },
+              ].map((opt) => (
+                <Chip
+                  key={opt.value}
+                  icon={opt.icon}
+                  selected={visitorType === opt.value}
+                  onPress={() => setVisitorType(opt.value)}
+                  style={[styles.typeChip, visitorType === opt.value && styles.typeChipSelected]}
+                  textStyle={visitorType === opt.value ? styles.typeChipTextSelected : styles.typeChipText}
+                  selectedColor={ACCENT}
+                >
+                  {opt.label}
+                </Chip>
+              ))}
             </View>
+          </ScrollView>
 
-            <TextInput mode="outlined" label="Visitor Name" value={name} onChangeText={setName} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-            <TextInput mode="outlined" label="Phone (optional)" value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
-            <TextInput mode="outlined" label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
+          {visitorType === 'other' && (
+            <View style={styles.inputWrap}>
+              <TextInput mode="flat" label="Specify visitor type" value={customVisitorType} onChangeText={setCustomVisitorType} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+            </View>
+          )}
 
-            <Text style={styles.fieldLabel}>Visitor Type</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
-              <View style={styles.typeChipRow}>
-                {[
-                  { value: 'guest', label: 'Guest', icon: 'account' },
-                  { value: 'delivery', label: 'Delivery', icon: 'package-variant' },
-                  { value: 'cab', label: 'Cab', icon: 'car' },
-                  { value: 'service', label: 'Service', icon: 'wrench' },
-                  { value: 'other', label: 'Other', icon: 'dots-horizontal' },
-                ].map((opt) => (
-                  <Chip
-                    key={opt.value}
-                    icon={opt.icon}
-                    selected={visitorType === opt.value}
-                    onPress={() => setVisitorType(opt.value)}
-                    style={[styles.typeChip, visitorType === opt.value && styles.typeChipSelected]}
-                    textStyle={visitorType === opt.value ? styles.typeChipTextSelected : undefined}
-                    selectedColor={PRIMARY}
-                  >
-                    {opt.label}
-                  </Chip>
-                ))}
+          <View style={styles.photoRow}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.previewImage} />
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <Avatar.Icon size={36} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} />
               </View>
-            </ScrollView>
-
-            {visitorType === 'other' && (
-              <TextInput mode="outlined" label="Specify visitor type" value={customVisitorType} onChangeText={setCustomVisitorType} style={styles.input} outlineColor="#e2ddef" activeOutlineColor={PRIMARY} />
             )}
-
-            <View style={styles.photoRow}>
-              {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.photoPlaceholder}>
-                  <Avatar.Icon size={36} icon="camera" style={{ backgroundColor: 'transparent' }} color="#b3a6d6" />
-                </View>
-              )}
-              <Button mode="outlined" onPress={pickPhoto} icon="camera" textColor={PRIMARY} style={styles.photoButton}>
-                {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
-              </Button>
-            </View>
-
-            <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} buttonColor={PRIMARY} style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-              Send Approval Request
+            <Button mode="outlined" onPress={pickPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
+              {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
             </Button>
-          </Card.Content>
-        </Card>
+          </View>
+
+          <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+            Send Approval Request
+          </Button>
+        </View>
 
         <View style={styles.sectionHeaderRow}>
-          <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={PRIMARY} />
+          <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
           <Text style={styles.sectionTitle}>Live Requests</Text>
           <Text style={styles.countBadge}>{filtered.length}</Text>
         </View>
 
-        <TextInput
-          mode="outlined"
-          label="Search by flat number"
-          value={searchFlat}
-          onChangeText={setSearchFlat}
-          style={styles.input}
-          outlineColor="#e2ddef"
-          activeOutlineColor={PRIMARY}
-          left={<TextInput.Icon icon="magnify" color="#9a8fc2" />}
-          right={searchFlat ? <TextInput.Icon icon="close" onPress={() => setSearchFlat('')} /> : undefined}
-        />
+        <View style={styles.inputWrap}>
+          <TextInput
+            mode="flat"
+            label="Search by flat number"
+            value={searchFlat}
+            onChangeText={setSearchFlat}
+            style={styles.input}
+            underlineColor="transparent"
+            activeUnderlineColor="transparent"
+            textColor={INK}
+            theme={inputTheme}
+            left={<TextInput.Icon icon="magnify" color={INK_FAINT} />}
+            right={searchFlat ? <TextInput.Icon icon="close" color={INK_FAINT} onPress={() => setSearchFlat('')} /> : undefined}
+          />
+        </View>
 
         <View style={styles.toolbarRow}>
           <Chip
             icon="filter-variant"
             selected={filtersOpen}
             onPress={() => setFiltersOpen((v) => !v)}
-            style={styles.toolbarChip}
-            selectedColor={PRIMARY}
+            style={[styles.toolbarChip, filtersOpen && styles.chipSelected]}
+            textStyle={filtersOpen ? styles.chipTextSelected : styles.chipText}
+            selectedColor={ACCENT}
           >
             Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
           </Chip>
@@ -426,7 +456,7 @@ export default function GuardHome() {
             compact
             mode="text"
             icon={sortOrder === 'newest' ? 'sort-clock-descending' : 'sort-clock-ascending'}
-            textColor={PRIMARY}
+            textColor={ACCENT}
             onPress={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
           >
             {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
@@ -434,48 +464,46 @@ export default function GuardHome() {
         </View>
 
         {filtersOpen && (
-          <Card style={styles.filterCard} mode="outlined">
-            <Card.Content>
-              <Text style={styles.filterLabel}>Status</Text>
-              <View style={styles.filterRow}>
-                {['all', 'pending', 'approved', 'denied'].map((f) => (
-                  <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={styles.filterChip} selectedColor={PRIMARY}>
-                    {f}
-                  </Chip>
-                ))}
-              </View>
+          <View style={styles.filterCard}>
+            <Text style={styles.filterLabel}>Status</Text>
+            <View style={styles.filterRow}>
+              {['all', 'pending', 'approved', 'denied'].map((f) => (
+                <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={[styles.filterChip, filterStatus === f && styles.chipSelected]} textStyle={filterStatus === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                  {f}
+                </Chip>
+              ))}
+            </View>
 
-              <Text style={styles.filterLabel}>Visitor Type</Text>
-              <View style={styles.filterRow}>
-                {['all', 'guest', 'delivery', 'cab', 'service', 'other'].map((f) => (
-                  <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={styles.filterChip} selectedColor={PRIMARY}>
-                    {f}
-                  </Chip>
-                ))}
-              </View>
+            <Text style={styles.filterLabel}>Visitor Type</Text>
+            <View style={styles.filterRow}>
+              {['all', 'guest', 'delivery', 'cab', 'service', 'other'].map((f) => (
+                <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={[styles.filterChip, filterType === f && styles.chipSelected]} textStyle={filterType === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                  {f}
+                </Chip>
+              ))}
+            </View>
 
-              {towers.length > 0 && (
-                <>
-                  <Text style={styles.filterLabel}>Tower</Text>
-                  <View style={styles.filterRow}>
-                    <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={styles.filterChip} selectedColor={PRIMARY}>
-                      all
+            {towers.length > 0 && (
+              <>
+                <Text style={styles.filterLabel}>Tower</Text>
+                <View style={styles.filterRow}>
+                  <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={[styles.filterChip, filterTower === 'all' && styles.chipSelected]} textStyle={filterTower === 'all' ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                    all
+                  </Chip>
+                  {towers.map((t) => (
+                    <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={[styles.filterChip, filterTower === t.id && styles.chipSelected]} textStyle={filterTower === t.id ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                      {t.name}
                     </Chip>
-                    {towers.map((t) => (
-                      <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={styles.filterChip} selectedColor={PRIMARY}>
-                        {t.name}
-                      </Chip>
-                    ))}
-                  </View>
-                </>
-              )}
-            </Card.Content>
-          </Card>
+                  ))}
+                </View>
+              </>
+            )}
+          </View>
         )}
 
         {filtered.length === 0 && (
           <View style={styles.emptyState}>
-            <Avatar.Icon size={48} icon="clipboard-search-outline" style={{ backgroundColor: '#ede7f6' }} color={PRIMARY} />
+            <Avatar.Icon size={48} icon="clipboard-search-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
             <Text style={styles.empty}>No matching requests</Text>
           </View>
         )}
@@ -504,7 +532,8 @@ export default function GuardHome() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f7f5fb' },
+  screen: { flex: 1, backgroundColor: PAGE_BG },
+
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -512,38 +541,59 @@ const styles = StyleSheet.create({
     paddingTop: 56,
     paddingHorizontal: 20,
     paddingBottom: 14,
-    backgroundColor: '#fff',
+    backgroundColor: CARD_BG,
     borderBottomWidth: 1,
-    borderBottomColor: '#ece7f5',
+    borderBottomColor: BORDER,
   },
-  eyebrow: { fontSize: 11, fontWeight: '700', color: PRIMARY, letterSpacing: 1.5, marginBottom: 2 },
-  title: { fontSize: 22, fontWeight: '700', color: '#1e1b2e' },
-  logoutBtn: { backgroundColor: '#f3effa', margin: 0 },
+  eyebrow: { fontSize: 11, fontWeight: '700', color: ACCENT, letterSpacing: 1.5, marginBottom: 2 },
+  title: { fontSize: 22, fontWeight: '700', color: INK },
+  logoutBtn: { backgroundColor: ACCENT_SOFT, margin: 0 },
   container: { padding: 20, paddingBottom: 12 },
 
-  sectionCard: { marginBottom: 24, borderRadius: 16, backgroundColor: '#fff' },
+  sectionCard: {
+    marginBottom: 24,
+    borderRadius: 20,
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+    shadowColor: '#151329',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    elevation: 2,
+  },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
-  sectionIcon: { backgroundColor: '#ede7f6' },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1e1b2e', flex: 1 },
+  sectionIcon: { backgroundColor: ACCENT_SOFT },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: INK, flex: 1 },
   countBadge: {
     fontSize: 12,
     fontWeight: '700',
-    color: PRIMARY,
-    backgroundColor: '#ede7f6',
+    color: '#fff',
+    backgroundColor: ACCENT,
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderRadius: 12,
     overflow: 'hidden',
   },
 
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 6, marginTop: 2 },
-  input: { marginBottom: 14, backgroundColor: '#fff' },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: INK_MUTED, marginBottom: 8, marginTop: 2 },
+
+  inputWrap: {
+    backgroundColor: INPUT_BG,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    marginBottom: 14,
+  },
+  input: { backgroundColor: 'transparent' },
 
   segmentedScroll: { marginBottom: 14 },
   typeChipRow: { flexDirection: 'row', gap: 8 },
-  typeChip: { backgroundColor: '#faf9fc' },
-  typeChipSelected: { backgroundColor: '#ede7f6' },
-  typeChipTextSelected: { color: PRIMARY, fontWeight: '700' },
+  typeChip: { backgroundColor: INPUT_BG, borderWidth: 1, borderColor: 'transparent' },
+  typeChipSelected: { backgroundColor: ACCENT_SOFT, borderColor: ACCENT },
+  typeChipText: { color: INK_MUTED },
+  typeChipTextSelected: { color: INK, fontWeight: '700' },
 
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   previewImage: { width: 64, height: 64, borderRadius: 12 },
@@ -551,38 +601,56 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 12,
-    backgroundColor: '#f3effa',
+    backgroundColor: INPUT_BG,
     borderWidth: 1,
-    borderColor: '#e2ddef',
+    borderColor: BORDER,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  photoButton: { flex: 1, borderColor: '#d9d0ee' },
-  submitButton: { borderRadius: 10, marginTop: 4 },
+  photoButton: { flex: 1, borderColor: ACCENT },
+  submitButton: { borderRadius: 14, marginTop: 4 },
 
   toolbarRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  toolbarChip: { backgroundColor: '#fff' },
-  filterCard: { marginBottom: 14, borderRadius: 14, borderColor: '#e2ddef', backgroundColor: '#fff' },
+  toolbarChip: { backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER },
+  filterCard: {
+    marginBottom: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD_BG,
+    padding: 16,
+  },
 
-  card: { borderRadius: 14, backgroundColor: '#fff' },
+  card: {
+    borderRadius: 18,
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: 'hidden',
+  },
+  cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 8 },
+  actionBtn: { borderRadius: 12 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   rowWithImage: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  visitorName: { fontSize: 16, fontWeight: '700', color: '#1e1b2e', flexShrink: 1 },
-  meta: { color: '#6b6480', marginTop: 3, fontSize: 13 },
-  metaFaint: { color: '#a49cbe', marginTop: 2, fontSize: 12 },
+  visitorName: { fontSize: 16, fontWeight: '700', color: INK, flexShrink: 1 },
+  meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
+  metaFaint: { color: INK_FAINT, marginTop: 2, fontSize: 12 },
   thumb: { width: 52, height: 52, borderRadius: 26 },
-  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: PRIMARY, justifyContent: 'center', alignItems: 'center' },
+  thumbPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   thumbInitial: { color: 'white', fontSize: 19, fontWeight: '700' },
 
   timeRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
-  timeChip: { backgroundColor: '#f3effa', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  timeChipText: { fontSize: 11, fontWeight: '600', color: PRIMARY },
+  timeChip: { backgroundColor: ACCENT_SOFT, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  timeChipText: { fontSize: 11, fontWeight: '600', color: ACCENT },
 
-  filterLabel: { fontSize: 12, fontWeight: '600', color: '#6b6480', marginBottom: 6, marginTop: 6 },
+  filterLabel: { fontSize: 12, fontWeight: '600', color: INK_MUTED, marginBottom: 6, marginTop: 6 },
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
-  filterChip: { marginBottom: 4, backgroundColor: '#faf9fc' },
+  filterChip: { marginBottom: 4, backgroundColor: INPUT_BG, borderWidth: 1, borderColor: 'transparent' },
+  chipSelected: { backgroundColor: ACCENT_SOFT, borderColor: ACCENT },
+  chipText: { color: INK_MUTED },
+  chipTextSelected: { color: INK, fontWeight: '600' },
 
   emptyState: { alignItems: 'center', paddingVertical: 32, gap: 10 },
-  empty: { color: '#8a82a6', fontSize: 14 },
+  empty: { color: INK_FAINT, fontSize: 14 },
 });
