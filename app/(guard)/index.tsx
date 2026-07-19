@@ -1,5 +1,5 @@
 import { useEffect, useState, memo, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList, Alert, Image, Platform, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, FlatList, Alert, Image, Platform, Modal, Pressable, KeyboardAvoidingView } from 'react-native';
 import { TextInput, Button, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -7,6 +7,7 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ---- Inline theme: light, minimal, premium (matches Login / Signup / Admin / Resident) ----
 const INK = '#15131F';
@@ -145,6 +146,7 @@ const VisitorCard = memo(function VisitorCard({
 });
 
 export default function GuardHome() {
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('home');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -166,6 +168,11 @@ export default function GuardHome() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
+
+  // ---- Resident Search Additions ----
+  const [residents, setResidents] = useState<{ full_name: string; flat_id: string | null }[]>([]);
+  const [residentSearch, setResidentSearch] = useState('');
+  const [showResidentResults, setShowResidentResults] = useState(false);
 
   // ---- bottom nav / Profile page state ----
   const [profileOpen, setProfileOpen] = useState(false);
@@ -200,10 +207,14 @@ export default function GuardHome() {
     if (data) setFlats(data);
   };
 
-  // Pulls name/phone for the Profile page. Read-only, additive — mirrors Admin/Resident's fetchMyProfile.
   const fetchMyProfile = async () => {
     const { data } = await supabase.from('profiles').select('full_name, phone').eq('id', userId).single();
     if (data) setMyProfile({ full_name: (data as any).full_name, phone: (data as any).phone ?? null });
+  };
+
+  const fetchResidents = async () => {
+    const { data } = await supabase.from('profiles').select('full_name, flat_id').eq('role', 'resident').eq('approved', true);
+    if (data) setResidents(data as any);
   };
 
   useEffect(() => {
@@ -211,6 +222,7 @@ export default function GuardHome() {
     fetchTowers();
     fetchFlats();
     fetchMyProfile();
+    fetchResidents();
 
     const channel = supabase
       .channel('visitor_requests_guard')
@@ -249,6 +261,14 @@ export default function GuardHome() {
     if (loading) return;
     if (!name || !flatNumber) {
       Alert.alert('Missing info', 'Name and flat number are required');
+      return;
+    }
+    if (name.trim().length < 3 || name.trim().length > 15) {
+      Alert.alert('Invalid name', 'Visitor name must be between 3 and 15 characters');
+      return;
+    }
+    if (phone.trim().length > 0 && !/^\d{10}$/.test(phone.trim())) {
+      Alert.alert('Invalid phone', 'Phone number must be exactly 10 digits');
       return;
     }
     if (visitorType === 'other' && !customVisitorType.trim()) {
@@ -302,6 +322,7 @@ export default function GuardHome() {
       setName('');
       setPhone('');
       setFlatNumber('');
+      setResidentSearch('');
       setPhotoUri(null);
       setCustomVisitorType('');
       Alert.alert('Request sent', `${name}'s visit request was sent for approval`);
@@ -357,7 +378,7 @@ export default function GuardHome() {
 
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
-  // ---- Derived, display-only values for the Home dashboard + Profile page (no new fetches) ----
+  // ---- Derived, display-only values ----
   const firstName = myProfile?.full_name?.split(' ')[0] ?? 'Guard';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -376,7 +397,7 @@ export default function GuardHome() {
   return (
     <View style={styles.screen}>
       {/* ---------------- Top Header ---------------- */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>{greeting},</Text>
           <Text style={styles.title}>{firstName}</Text>
@@ -387,47 +408,95 @@ export default function GuardHome() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {tab === 'home' && (
-          <>
-            {/* Quick stats */}
-            <View style={styles.statsRow}>
-              <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
-                <Text style={[styles.statNum, pendingCount > 0 && { color: GOLD }]}>{pendingCount}</Text>
-                <Text style={styles.statLabel}>Awaiting Approval</Text>
-              </Pressable>
-              <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
-                <Text style={styles.statNum}>{insideCount}</Text>
-                <Text style={styles.statLabel}>Currently Inside</Text>
-              </Pressable>
-              <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
-                <Text style={styles.statNum}>{entriesTodayCount}</Text>
-                <Text style={styles.statLabel}>Entries Today</Text>
-              </Pressable>
-            </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {tab === 'home' && (
+            <>
+              {/* Quick stats */}
+              <View style={styles.statsRow}>
+                <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
+                  <Text style={[styles.statNum, pendingCount > 0 && { color: GOLD }]}>{pendingCount}</Text>
+                  <Text style={styles.statLabel}>Awaiting Approval</Text>
+                </Pressable>
+                <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
+                  <Text style={styles.statNum}>{insideCount}</Text>
+                  <Text style={styles.statLabel}>Currently Inside</Text>
+                </Pressable>
+                <Pressable style={styles.statCard} onPress={() => goToTab('requests')}>
+                  <Text style={styles.statNum}>{entriesTodayCount}</Text>
+                  <Text style={styles.statLabel}>Entries Today</Text>
+                </Pressable>
+              </View>
 
-            {/* Quick actions */}
-            <Text style={styles.homeSectionLabel}>Quick Actions</Text>
-            <View style={styles.quickActionsRow}>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('register')}>
-                <Avatar.Icon size={40} icon="account-plus" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Register Visitor</Text>
-              </Pressable>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('requests')}>
-                <Avatar.Icon size={40} icon="account-clock" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Live Requests</Text>
-              </Pressable>
-            </View>
+              {/* Quick actions */}
+              <Text style={styles.homeSectionLabel}>Quick Actions</Text>
+              <View style={styles.quickActionsRow}>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('register')}>
+                  <Avatar.Icon size={40} icon="account-plus" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Register Visitor</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('requests')}>
+                  <Avatar.Icon size={40} icon="account-clock" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Live Requests</Text>
+                </Pressable>
+              </View>
 
-            {/* Awaiting entry preview — approved visitors not yet checked in */}
-            {awaitingEntry.length > 0 && (
-              <>
-                <View style={[styles.sectionHeaderRow, { marginTop: 8 }]}>
-                  <Avatar.Icon size={30} icon="login" style={styles.sectionIcon} color={ACCENT} />
-                  <Text style={styles.sectionTitle}>Ready to Check In</Text>
-                  <Pressable onPress={() => goToTab('requests')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+              {/* Awaiting entry preview */}
+              {awaitingEntry.length > 0 && (
+                <>
+                  <View style={[styles.sectionHeaderRow, { marginTop: 8 }]}>
+                    <Avatar.Icon size={30} icon="login" style={styles.sectionIcon} color={ACCENT} />
+                    <Text style={styles.sectionTitle}>Ready to Check In</Text>
+                    <Pressable onPress={() => goToTab('requests')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+                  </View>
+                  {awaitingEntry.map((item) => (
+                    <View key={item.id} style={[styles.card, { marginBottom: 12 }]}>
+                      <View style={{ padding: 16 }}>
+                        <View style={styles.rowWithImage}>
+                          {item.visitors?.photo_url ? (
+                            <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                          ) : (
+                            <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.visitorName}>{item.visitors?.name}</Text>
+                            <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+                          </View>
+                        </View>
+                      </View>
+                      <Divider style={{ backgroundColor: BORDER }} />
+                      <View style={styles.cardActions}>
+                        <Button
+                          mode="contained"
+                          icon="login"
+                          buttonColor={ACCENT}
+                          textColor="#fff"
+                          loading={actionLoadingId === item.id}
+                          disabled={actionLoadingId === item.id}
+                          onPress={() => markEntry(item.id)}
+                          style={styles.actionBtn}
+                        >
+                          Mark Entry
+                        </Button>
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* Awaiting admin approval preview */}
+              <View style={[styles.sectionHeaderRow, { marginTop: awaitingEntry.length > 0 ? 8 : 8 }]}>
+                <Avatar.Icon size={30} icon="clock-alert-outline" style={{ backgroundColor: '#FBF3E4' }} color={GOLD} />
+                <Text style={styles.sectionTitle}>Awaiting Admin Approval</Text>
+                <Pressable onPress={() => goToTab('requests')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+              </View>
+              {awaitingApproval.length === 0 ? (
+                <View style={[styles.emptyState, { marginBottom: 12 }]}>
+                  <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>Nothing waiting on admin right now</Text>
                 </View>
-                {awaitingEntry.map((item) => (
+              ) : (
+                awaitingApproval.map((item) => (
                   <View key={item.id} style={[styles.card, { marginBottom: 12 }]}>
                     <View style={{ padding: 16 }}>
                       <View style={styles.rowWithImage}>
@@ -439,261 +508,260 @@ export default function GuardHome() {
                         <View style={{ flex: 1 }}>
                           <Text style={styles.visitorName}>{item.visitors?.name}</Text>
                           <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+                          <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
                         </View>
                       </View>
                     </View>
-                    <Divider style={{ backgroundColor: BORDER }} />
-                    <View style={styles.cardActions}>
-                      <Button
-                        mode="contained"
-                        icon="login"
-                        buttonColor={ACCENT}
-                        textColor="#fff"
-                        loading={actionLoadingId === item.id}
-                        disabled={actionLoadingId === item.id}
-                        onPress={() => markEntry(item.id)}
-                        style={styles.actionBtn}
-                      >
-                        Mark Entry
-                      </Button>
-                    </View>
                   </View>
-                ))}
-              </>
-            )}
+                ))
+              )}
+            </>
+          )}
 
-            {/* Awaiting admin approval preview */}
-            <View style={[styles.sectionHeaderRow, { marginTop: awaitingEntry.length > 0 ? 8 : 8 }]}>
-              <Avatar.Icon size={30} icon="clock-alert-outline" style={{ backgroundColor: '#FBF3E4' }} color={GOLD} />
-              <Text style={styles.sectionTitle}>Awaiting Admin Approval</Text>
-              <Pressable onPress={() => goToTab('requests')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
-            </View>
-            {awaitingApproval.length === 0 ? (
-              <View style={[styles.emptyState, { marginBottom: 12 }]}>
-                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>Nothing waiting on admin right now</Text>
+          {tab === 'register' && (
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Register Visitor</Text>
               </View>
-            ) : (
-              awaitingApproval.map((item) => (
-                <View key={item.id} style={[styles.card, { marginBottom: 12 }]}>
-                  <View style={{ padding: 16 }}>
-                    <View style={styles.rowWithImage}>
-                      {item.visitors?.photo_url ? (
-                        <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-                      ) : (
-                        <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                        <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-                        <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              ))
-            )}
-          </>
-        )}
 
-        {tab === 'register' && (
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Register Visitor</Text>
-            </View>
-
-            <View style={styles.inputWrap}>
-              <TextInput mode="flat" label="Visitor Name" value={name} onChangeText={setName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-            </View>
-            <View style={styles.inputWrap}>
-              <TextInput mode="flat" label="Phone (optional)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-            </View>
-            <View style={styles.inputWrap}>
-              <TextInput mode="flat" label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-            </View>
-
-            <Text style={styles.fieldLabel}>Visitor Type</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
-              <View style={styles.typeChipRow}>
-                {[
-                  { value: 'guest', label: 'Guest', icon: 'account' },
-                  { value: 'delivery', label: 'Delivery', icon: 'package-variant' },
-                  { value: 'cab', label: 'Cab', icon: 'car' },
-                  { value: 'service', label: 'Service', icon: 'wrench' },
-                  { value: 'other', label: 'Other', icon: 'dots-horizontal' },
-                ].map((opt) => (
-                  <Chip
-                    key={opt.value}
-                    icon={opt.icon}
-                    selected={visitorType === opt.value}
-                    onPress={() => setVisitorType(opt.value)}
-                    style={[styles.typeChip, visitorType === opt.value && styles.typeChipSelected]}
-                    textStyle={visitorType === opt.value ? styles.typeChipTextSelected : styles.typeChipText}
-                    selectedColor={ACCENT}
-                  >
-                    {opt.label}
-                  </Chip>
-                ))}
-              </View>
-            </ScrollView>
-
-            {visitorType === 'other' && (
               <View style={styles.inputWrap}>
-                <TextInput mode="flat" label="Specify visitor type" value={customVisitorType} onChangeText={setCustomVisitorType} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
+                <TextInput mode="flat" label="Visitor Name" value={name} onChangeText={setName} maxLength={15} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
               </View>
-            )}
-
-            <View style={styles.photoRow}>
-              {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.previewImage} />
-              ) : (
-                <View style={styles.photoPlaceholder}>
-                  <Avatar.Icon size={36} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} />
-                </View>
-              )}
-              <Button mode="outlined" onPress={pickPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
-                {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
-              </Button>
-            </View>
-
-            <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-              Send Approval Request
-            </Button>
-          </View>
-        )}
-
-        {tab === 'requests' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Live Requests</Text>
-              <Text style={styles.countBadge}>{filtered.length}</Text>
-            </View>
-
-            <View style={styles.inputWrap}>
-              <TextInput
-                mode="flat"
-                label="Search by flat number"
-                value={searchFlat}
-                onChangeText={setSearchFlat}
-                style={styles.input}
-                underlineColor="transparent"
-                activeUnderlineColor="transparent"
-                textColor={INK}
-                theme={inputTheme}
-                left={<TextInput.Icon icon="magnify" color={INK_FAINT} />}
-                right={searchFlat ? <TextInput.Icon icon="close" color={INK_FAINT} onPress={() => setSearchFlat('')} /> : undefined}
-              />
-            </View>
-
-            <View style={styles.toolbarRow}>
-              <Chip
-                icon="filter-variant"
-                selected={filtersOpen}
-                onPress={() => setFiltersOpen((v) => !v)}
-                style={[styles.toolbarChip, filtersOpen && styles.chipSelected]}
-                textStyle={filtersOpen ? styles.chipTextSelected : styles.chipText}
-                selectedColor={ACCENT}
-              >
-                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-              </Chip>
-              <Button
-                compact
-                mode="text"
-                icon={sortOrder === 'newest' ? 'sort-clock-descending' : 'sort-clock-ascending'}
-                textColor={ACCENT}
-                onPress={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
-              >
-                {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
-              </Button>
-            </View>
-
-            {filtersOpen && (
-              <View style={styles.filterCard}>
-                <Text style={styles.filterLabel}>Status</Text>
-                <View style={styles.filterRow}>
-                  {['all', 'pending', 'approved', 'denied'].map((f) => (
-                    <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={[styles.filterChip, filterStatus === f && styles.chipSelected]} textStyle={filterStatus === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
-                      {f}
-                    </Chip>
-                  ))}
-                </View>
-
-                <Text style={styles.filterLabel}>Visitor Type</Text>
-                <View style={styles.filterRow}>
-                  {['all', 'guest', 'delivery', 'cab', 'service', 'other'].map((f) => (
-                    <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={[styles.filterChip, filterType === f && styles.chipSelected]} textStyle={filterType === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
-                      {f}
-                    </Chip>
-                  ))}
-                </View>
-
-                {towers.length > 0 && (
-                  <>
-                    <Text style={styles.filterLabel}>Tower</Text>
-                    <View style={styles.filterRow}>
-                      <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={[styles.filterChip, filterTower === 'all' && styles.chipSelected]} textStyle={filterTower === 'all' ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
-                        all
-                      </Chip>
-                      {towers.map((t) => (
-                        <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={[styles.filterChip, filterTower === t.id && styles.chipSelected]} textStyle={filterTower === t.id ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
-                          {t.name}
-                        </Chip>
-                      ))}
-                    </View>
-                  </>
-                )}
+              <View style={styles.inputWrap}>
+                <TextInput mode="flat" label="Phone" value={phone} onChangeText={(t) => setPhone(t.replace(/\D/g, ''))} keyboardType="phone-pad" maxLength={10} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
               </View>
-            )}
 
-            {filtered.length === 0 && (
-              <View style={styles.emptyState}>
-                <Avatar.Icon size={48} icon="clipboard-search-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>No matching requests</Text>
-              </View>
-            )}
-
-            <FlatList
-              data={filtered}
-              keyExtractor={(item) => item.id}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-              renderItem={({ item }) => (
-                <VisitorCard
-                  item={item}
-                  statusColor={statusColor}
-                  statusBg={statusBg}
-                  actionLoadingId={actionLoadingId}
-                  markEntry={markEntry}
-                  markExit={markExit}
+              <View style={styles.inputWrap}>
+                <TextInput
+                  mode="flat"
+                  label="Search resident by name (optional)"
+                  value={residentSearch}
+                  onChangeText={(text) => { setResidentSearch(text); setShowResidentResults(text.length > 0); }}
+                  style={styles.input}
+                  underlineColor="transparent"
+                  activeUnderlineColor="transparent"
+                  textColor={INK}
+                  theme={inputTheme}
+                  cursorColor={ACCENT}
+                  left={<TextInput.Icon icon="account-search" color={INK_FAINT} />}
                 />
-              )}
-            />
-          </>
-        )}
+              </View>
 
-        {/* extra bottom padding so content never sits under the fixed bottom nav */}
-        <View style={{ height: 90 }} />
-      </ScrollView>
+              {showResidentResults && residentSearch.length > 0 && (
+                <View style={styles.searchResultsBox}>
+                  {residents
+                    .filter((r) => r.full_name?.toLowerCase().includes(residentSearch.toLowerCase()))
+                    .slice(0, 5)
+                    .map((r, idx) => {
+                      const flat = flats.find((f) => f.id === r.flat_id);
+                      return (
+                        <Pressable
+                          key={idx}
+                          style={styles.searchResultItem}
+                          onPress={() => {
+                            if (flat) setFlatNumber(flat.flat_number);
+                            setResidentSearch(r.full_name);
+                            setShowResidentResults(false);
+                          }}
+                        >
+                          <Text style={styles.searchResultName}>{r.full_name}</Text>
+                          <Text style={styles.searchResultFlat}>Flat {flat?.flat_number ?? '—'}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  {residents.filter((r) => r.full_name?.toLowerCase().includes(residentSearch.toLowerCase())).length === 0 && (
+                    <Text style={styles.searchNoResults}>No resident found</Text>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.inputWrap}>
+                <TextInput mode="flat" label="Flat Number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+              </View>
+
+              <Text style={styles.fieldLabel}>Visitor Type</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.segmentedScroll}>
+                <View style={styles.typeChipRow}>
+                  {[
+                    { value: 'guest', label: 'Guest', icon: 'account' },
+                    { value: 'delivery', label: 'Delivery', icon: 'package-variant' },
+                    { value: 'cab', label: 'Cab', icon: 'car' },
+                    { value: 'service', label: 'Service', icon: 'wrench' },
+                    { value: 'other', label: 'Other', icon: 'dots-horizontal' },
+                  ].map((opt) => (
+                    <Chip
+                      key={opt.value}
+                      icon={opt.icon}
+                      selected={visitorType === opt.value}
+                      onPress={() => setVisitorType(opt.value)}
+                      style={[styles.typeChip, visitorType === opt.value && styles.typeChipSelected]}
+                      textStyle={visitorType === opt.value ? styles.typeChipTextSelected : styles.typeChipText}
+                      selectedColor={ACCENT}
+                    >
+                      {opt.label}
+                    </Chip>
+                  ))}
+                </View>
+              </ScrollView>
+
+              {visitorType === 'other' && (
+                <View style={styles.inputWrap}>
+                  <TextInput mode="flat" label="Specify visitor type" value={customVisitorType} onChangeText={setCustomVisitorType} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+                </View>
+              )}
+
+              <View style={styles.photoRow}>
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.previewImage} />
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Avatar.Icon size={36} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} />
+                  </View>
+                )}
+                <Button mode="outlined" onPress={pickPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
+                  {photoUri ? 'Retake Photo' : 'Take Visitor Photo'}
+                </Button>
+              </View>
+
+              <Button mode="contained" onPress={handleRegisterVisitor} loading={loading} disabled={loading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                Send Approval Request
+              </Button>
+            </View>
+          )}
+
+          {tab === 'requests' && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Live Requests</Text>
+                <Text style={styles.countBadge}>{filtered.length}</Text>
+              </View>
+
+              <View style={styles.inputWrap}>
+                <TextInput
+                  mode="flat"
+                  label="Search by flat number"
+                  value={searchFlat}
+                  onChangeText={setSearchFlat}
+                  style={styles.input}
+                  underlineColor="transparent"
+                  activeUnderlineColor="transparent"
+                  textColor={INK}
+                  theme={inputTheme}
+                  cursorColor={ACCENT}
+                  left={<TextInput.Icon icon="magnify" color={INK_FAINT} />}
+                  right={searchFlat ? <TextInput.Icon icon="close" color={INK_FAINT} onPress={() => setSearchFlat('')} /> : undefined}
+                />
+              </View>
+
+              <View style={styles.toolbarRow}>
+                <Chip
+                  icon="filter-variant"
+                  selected={filtersOpen}
+                  onPress={() => setFiltersOpen((v) => !v)}
+                  style={[styles.toolbarChip, filtersOpen && styles.chipSelected]}
+                  textStyle={filtersOpen ? styles.chipTextSelected : styles.chipText}
+                  selectedColor={ACCENT}
+                >
+                  Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+                </Chip>
+                <Button
+                  compact
+                  mode="text"
+                  icon={sortOrder === 'newest' ? 'sort-clock-descending' : 'sort-clock-ascending'}
+                  textColor={ACCENT}
+                  onPress={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')}
+                >
+                  {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+                </Button>
+              </View>
+
+              {filtersOpen && (
+                <View style={styles.filterCard}>
+                  <Text style={styles.filterLabel}>Status</Text>
+                  <View style={styles.filterRow}>
+                    {['all', 'pending', 'approved', 'denied'].map((f) => (
+                      <Chip key={f} selected={filterStatus === f} onPress={() => setFilterStatus(f)} style={[styles.filterChip, filterStatus === f && styles.chipSelected]} textStyle={filterStatus === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                        {f}
+                      </Chip>
+                    ))}
+                  </View>
+
+                  <Text style={styles.filterLabel}>Visitor Type</Text>
+                  <View style={styles.filterRow}>
+                    {['all', 'guest', 'delivery', 'cab', 'service', 'other'].map((f) => (
+                      <Chip key={f} selected={filterType === f} onPress={() => setFilterType(f)} style={[styles.filterChip, filterType === f && styles.chipSelected]} textStyle={filterType === f ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                        {f}
+                      </Chip>
+                    ))}
+                  </View>
+
+                  {towers.length > 0 && (
+                    <>
+                      <Text style={styles.filterLabel}>Tower</Text>
+                      <View style={styles.filterRow}>
+                        <Chip selected={filterTower === 'all'} onPress={() => setFilterTower('all')} style={[styles.filterChip, filterTower === 'all' && styles.chipSelected]} textStyle={filterTower === 'all' ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                          all
+                        </Chip>
+                        {towers.map((t) => (
+                          <Chip key={t.id} selected={filterTower === t.id} onPress={() => setFilterTower(t.id)} style={[styles.filterChip, filterTower === t.id && styles.chipSelected]} textStyle={filterTower === t.id ? styles.chipTextSelected : styles.chipText} selectedColor={ACCENT}>
+                            {t.name}
+                          </Chip>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {filtered.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Avatar.Icon size={48} icon="clipboard-search-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>No matching requests</Text>
+                </View>
+              )}
+
+              <FlatList
+                data={filtered}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+                ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+                renderItem={({ item }) => (
+                  <VisitorCard
+                    item={item}
+                    statusColor={statusColor}
+                    statusBg={statusBg}
+                    actionLoadingId={actionLoadingId}
+                    markEntry={markEntry}
+                    markExit={markExit}
+                  />
+                )}
+              />
+            </>
+          )}
+
+          <View style={{ height: 90 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ---------------- Bottom Nav Bar ---------------- */}
-      <View style={styles.bottomNav}>
-        <Pressable style={styles.navItem} onPress={() => setTab('home')} hitSlop={8}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 10 }]}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('home')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'home' && styles.navIconWrapActive]}>
             <IconButton icon="home-variant" size={22} iconColor={tab === 'home' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
           </View>
           <Text style={[styles.navLabel, tab === 'home' && styles.navLabelActive]}>Home</Text>
         </Pressable>
 
-        <Pressable style={styles.navItem} onPress={() => setTab('register')} hitSlop={8}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('register')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'register' && styles.navIconWrapActive]}>
             <IconButton icon="account-plus-outline" size={22} iconColor={tab === 'register' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
           </View>
           <Text style={[styles.navLabel, tab === 'register' && styles.navLabelActive]}>Register</Text>
         </Pressable>
 
-        <Pressable style={styles.navItem} onPress={() => setTab('requests')} hitSlop={8}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('requests')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'requests' && styles.navIconWrapActive]}>
             <IconButton icon="account-clock-outline" size={22} iconColor={tab === 'requests' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
             {pendingCount > 0 && tab !== 'requests' && <View style={styles.navDot} />}
@@ -711,17 +779,16 @@ export default function GuardHome() {
         </Pressable>
       </View>
 
-      {/* ---------------- Profile — full page, about you only ---------------- */}
+      {/* ---------------- Profile Modal ---------------- */}
       <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
         <View style={styles.profileScreen}>
-          <View style={styles.profileTopBar}>
+          <View style={[styles.profileTopBar, { paddingTop: insets.top + 12 }]}>
             <IconButton icon="arrow-left" size={24} iconColor={INK} onPress={() => setProfileOpen(false)} style={{ margin: 0 }} />
             <Text style={styles.profileTopBarTitle}>Profile</Text>
             <View style={{ width: 40 }} />
           </View>
 
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-            {/* Identity card */}
             <View style={styles.profileIdCard}>
               <View style={styles.profileBigAvatar}>
                 <Text style={styles.profileBigAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? 'G'}</Text>
@@ -739,7 +806,6 @@ export default function GuardHome() {
               ) : null}
             </View>
 
-            {/* Stats — read-only summary of the shift, not navigation */}
             <Text style={styles.profileSectionLabel}>Today's Summary</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statTile}>
@@ -756,7 +822,6 @@ export default function GuardHome() {
               </View>
             </View>
 
-            {/* Log out */}
             <Pressable style={styles.logoutButton} onPress={() => { setProfileOpen(false); handleLogout(); }}>
               <IconButton icon="logout" size={20} iconColor={DANGER} style={{ margin: 0 }} />
               <Text style={styles.logoutButtonText}>Log Out</Text>
@@ -774,7 +839,7 @@ const styles = StyleSheet.create({
   // ---- Header ----
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 18,
+    paddingHorizontal: 20, paddingBottom: 18,
     backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   greeting: { fontSize: 13, color: INK_MUTED, fontWeight: '600' },
@@ -901,6 +966,13 @@ const styles = StyleSheet.create({
 
   emptyState: { alignItems: 'center', paddingVertical: 32, gap: 10 },
   empty: { color: INK_FAINT, fontSize: 14 },
+  
+  // ---- Search Autocomplete Dropdown Drop Styles ----
+  searchResultsBox: { backgroundColor: CARD_BG, borderRadius: 14, borderWidth: 1, borderColor: BORDER, marginTop: -8, marginBottom: 14, overflow: 'hidden' },
+  searchResultItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: BORDER },
+  searchResultName: { fontSize: 14, fontWeight: '600', color: INK },
+  searchResultFlat: { fontSize: 13, color: INK_MUTED },
+  searchNoResults: { padding: 16, color: INK_FAINT, fontSize: 13, textAlign: 'center' },
 
   // ---- Bottom Nav ----
   bottomNav: {
@@ -910,7 +982,6 @@ const styles = StyleSheet.create({
     backgroundColor: CARD_BG,
     borderTopWidth: 1,
     borderTopColor: BORDER,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
     paddingTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -927,11 +998,11 @@ const styles = StyleSheet.create({
   navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   navAvatarInitial: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  // ---- Full Profile page (about you only) ----
+  // ---- Full Profile page ----
   profileScreen: { flex: 1, backgroundColor: PAGE_BG },
   profileTopBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 56, paddingHorizontal: 8, paddingBottom: 12,
+    paddingHorizontal: 8, paddingBottom: 12,
     backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   profileTopBarTitle: { fontSize: 17, fontWeight: '700', color: INK },
