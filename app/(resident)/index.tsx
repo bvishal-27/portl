@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Alert, ScrollView, Platform, Image, Modal, Pressable, KeyboardAvoidingView } from 'react-native';
 import { Button, TextInput, Chip, Avatar, Divider, IconButton } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,6 +8,7 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard / Admin) ----
 const INK = '#15131F';
@@ -43,7 +44,6 @@ type Staff = { id: string; name: string; service_type: string; phone: string | n
 type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
 type MyProfile = { full_name: string; phone: string | null; flat_number: string | null; tower_name: string | null };
 
-// Everything reachable from the "More" grid — sections that don't get a dedicated bottom-bar slot
 const MORE_TABS = [
   { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'polls', label: 'Polls', icon: 'poll' },
@@ -53,6 +53,7 @@ const MORE_TABS = [
 ];
 
 export default function ResidentHome() {
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('home');
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [flatId, setFlatId] = useState<string | null>(null);
@@ -133,7 +134,6 @@ export default function ResidentHome() {
     const { data } = await supabase.from('dues').select('*').eq('flat_id', currentFlatId).order('due_date', { ascending: false });
     if (data) setDues(data);
   };
-  // Pulls name/phone/flat/tower for the Profile page. Read-only, additive.
   const fetchMyProfile = async () => {
     const { data } = await supabase
       .from('profiles')
@@ -223,6 +223,14 @@ export default function ResidentHome() {
     if (guestLoading) return;
     if (!guestName || !flatId) {
       Alert.alert('Missing info', 'Enter a guest name');
+      return;
+    }
+    if (guestName.trim().length < 3 || guestName.trim().length > 15) {
+      Alert.alert('Invalid name', 'Guest name must be between 3 and 15 characters');
+      return;
+    }
+    if (guestPhone.trim().length > 0 && !/^\d{10}$/.test(guestPhone.trim())) {
+      Alert.alert('Invalid phone', 'Phone number must be exactly 10 digits');
       return;
     }
     setGuestLoading(true);
@@ -352,7 +360,7 @@ export default function ResidentHome() {
 
   const isMoreActiveTab = MORE_TABS.some((t) => t.key === tab);
 
-  // ---- Derived, display-only values for Home dashboard + Profile page (no new fetches) ----
+  // ---- Derived, display-only values ----
   const firstName = myProfile?.full_name?.split(' ')[0] ?? 'there';
   const openTicketsCount = tickets.filter((t) => t.status !== 'resolved').length;
   const hour = new Date().getHours();
@@ -369,7 +377,7 @@ export default function ResidentHome() {
   return (
     <View style={styles.screen}>
       {/* ---------------- Top Header ---------------- */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>{greeting},</Text>
           <Text style={styles.title}>{firstName}</Text>
@@ -385,458 +393,459 @@ export default function ResidentHome() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        {tab === 'home' && (
-          <>
-            {/* Quick stats */}
-            <View style={styles.statsRow}>
-              <Pressable style={styles.statCard} onPress={() => goToTab('dues')}>
-                <Text style={[styles.statNum, pendingDues.length > 0 && { color: DANGER }]}>{pendingDues.length}</Text>
-                <Text style={styles.statLabel}>Dues Pending</Text>
-              </Pressable>
-              <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
-                <Text style={styles.statNum}>{pendingRequests.length}</Text>
-                <Text style={styles.statLabel}>Visitor Requests</Text>
-              </Pressable>
-              <Pressable style={styles.statCard} onPress={() => goToTab('helpdesk')}>
-                <Text style={styles.statNum}>{openTicketsCount}</Text>
-                <Text style={styles.statLabel}>Open Tickets</Text>
-              </Pressable>
-            </View>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          {tab === 'home' && (
+            <>
+              {/* Quick stats */}
+              <View style={styles.statsRow}>
+                <Pressable style={styles.statCard} onPress={() => goToTab('dues')}>
+                  <Text style={[styles.statNum, pendingDues.length > 0 && { color: DANGER }]}>{pendingDues.length}</Text>
+                  <Text style={styles.statLabel}>Dues Pending</Text>
+                </Pressable>
+                <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
+                  <Text style={styles.statNum}>{pendingRequests.length}</Text>
+                  <Text style={styles.statLabel}>Visitor Requests</Text>
+                </Pressable>
+                <Pressable style={styles.statCard} onPress={() => goToTab('helpdesk')}>
+                  <Text style={styles.statNum}>{openTicketsCount}</Text>
+                  <Text style={styles.statLabel}>Open Tickets</Text>
+                </Pressable>
+              </View>
 
-            {/* Quick actions */}
-            <Text style={styles.homeSectionLabel}>Quick Actions</Text>
-            <View style={styles.quickActionsRow}>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('visitors')}>
-                <Avatar.Icon size={40} icon="account-plus" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Add Guest</Text>
-              </Pressable>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('helpdesk')}>
-                <Avatar.Icon size={40} icon="headset" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Raise Ticket</Text>
-              </Pressable>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('amenities')}>
-                <Avatar.Icon size={40} icon="calendar-check" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Book Slot</Text>
-              </Pressable>
-              <Pressable style={styles.quickActionTile} onPress={() => goToTab('dues')}>
-                <Avatar.Icon size={40} icon="cash-multiple" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.quickActionLabel}>Pay Dues</Text>
-              </Pressable>
-            </View>
+              {/* Quick actions */}
+              <Text style={styles.homeSectionLabel}>Quick Actions</Text>
+              <View style={styles.quickActionsRow}>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('visitors')}>
+                  <Avatar.Icon size={40} icon="account-plus" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Add Guest</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('helpdesk')}>
+                  <Avatar.Icon size={40} icon="headset" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Raise Ticket</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('amenities')}>
+                  <Avatar.Icon size={40} icon="calendar-check" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Book Slot</Text>
+                </Pressable>
+                <Pressable style={styles.quickActionTile} onPress={() => goToTab('dues')}>
+                  <Avatar.Icon size={40} icon="cash-multiple" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.quickActionLabel}>Pay Dues</Text>
+                </Pressable>
+              </View>
 
-            {/* Outstanding dues banner */}
-            {pendingDues.length > 0 && (
-              <Pressable style={[styles.card, styles.totalDueCard]} onPress={() => goToTab('dues')}>
-                <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center' }}>
+              {/* Outstanding dues banner */}
+              {pendingDues.length > 0 && (
+                <Pressable style={[styles.card, styles.totalDueCard]} onPress={() => goToTab('dues')}>
+                  <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.totalDueLabel}>Total Outstanding</Text>
+                      <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
+                    </View>
+                    <IconButton icon="chevron-right" size={22} iconColor="#fff" style={{ margin: 0 }} />
+                  </View>
+                </Pressable>
+              )}
+
+              {/* Latest notice preview */}
+              <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+                <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Latest Notice</Text>
+                <Pressable onPress={() => goToTab('notices')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+              </View>
+              {latestNotice ? (
+                <View style={[styles.card, { marginBottom: 20 }]}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{latestNotice.title}</Text>
+                    <Text style={styles.noticeBody} numberOfLines={2}>{latestNotice.body}</Text>
+                    <Text style={styles.metaFaint}>{new Date(latestNotice.created_at).toLocaleDateString()}</Text>
+                  </View>
+                </View>
+              ) : (
+                <Text style={[styles.empty, { marginBottom: 20 }]}>No notices yet</Text>
+              )}
+
+              {/* Upcoming booking preview */}
+              {nextBooking && (
+                <>
+                  <View style={styles.sectionHeaderRow}>
+                    <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
+                    <Text style={styles.sectionTitle}>Upcoming Booking</Text>
+                    <Pressable onPress={() => goToTab('amenities')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
+                  </View>
+                  <View style={[styles.card, { marginBottom: 8 }]}>
+                    <View style={{ padding: 16 }}>
+                      <Text style={styles.visitorName}>{amenityNameFor(nextBooking.amenity_id)}</Text>
+                      <Text style={styles.meta}>{nextBooking.booking_date} · {nextBooking.slot}</Text>
+                    </View>
+                  </View>
+                </>
+              )}
+            </>
+          )}
+
+          {tab === 'visitors' && (
+            <>
+              <View style={styles.sectionCard}>
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
+                  <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
+                </View>
+                <View style={styles.inputWrap}>
+                  <TextInput mode="flat" label="Guest name" value={guestName} onChangeText={setGuestName} maxLength={15} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+                </View>
+                <View style={styles.inputWrap}>
+                  <TextInput mode="flat" label="Guest phone" value={guestPhone} onChangeText={(t) => setGuestPhone(t.replace(/\D/g, ''))} keyboardType="phone-pad" maxLength={10} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+                </View>
+                <View style={styles.photoRow}>
+                  {guestPhotoUri ? (
+                    <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />
+                  ) : (
+                    <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} /></View>
+                  )}
+                  <Button mode="outlined" onPress={pickGuestPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
+                    {guestPhotoUri ? 'Retake' : 'Add Photo'}
+                  </Button>
+                </View>
+                <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                  Pre-approve Guest
+                </Button>
+              </View>
+
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Pending Approvals</Text>
+                {pendingRequests.length > 0 && <Text style={styles.countBadge}>{pendingRequests.length}</Text>}
+              </View>
+              {pendingRequests.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>No pending requests</Text>
+                </View>
+              )}
+              <FlatList data={pendingRequests} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+                <View style={styles.card}>
+                  <View style={{ padding: 16 }}>
+                    <View style={styles.rowWithImage}>
+                      {item.visitors?.photo_url ? (
+                        <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                      ) : (
+                        <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.visitorName}>{item.visitors?.name}</Text>
+                        <Text style={styles.meta}>{item.visitors?.visitor_type}{item.visitors?.phone ? ` · ${item.visitors.phone}` : ''}</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <Divider style={{ backgroundColor: BORDER }} />
+                  <View style={styles.cardActions}>
+                    <Button textColor={DANGER} onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
+                    <Button mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
+                  </View>
+                </View>
+              )} />
+
+              <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+                <Avatar.Icon size={30} icon="history" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>History</Text>
+              </View>
+              {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
+              <FlatList data={visibleHistory} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
+                <View style={styles.historyRow}>
+                  {item.visitors?.photo_url ? (
+                    <Image source={{ uri: item.visitors.photo_url }} style={styles.thumbSmall} />
+                  ) : (
+                    <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                  )}
                   <View style={{ flex: 1 }}>
+                    <Text style={styles.historyName}>{item.visitors?.name}</Text>
+                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleDateString()}</Text>
+                  </View>
+                  <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: item.status === 'approved' ? SUCCESS : DANGER }} style={{ backgroundColor: item.status === 'approved' ? SUCCESS_BG : DANGER_BG }}>
+                    {item.pre_approved ? 'pre-approved' : item.status}
+                  </Chip>
+                </View>
+              )} />
+              {pastRequests.length > 5 && (
+                <Button compact textColor={ACCENT} onPress={() => setShowAllHistory(!showAllHistory)}>
+                  {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
+                </Button>
+              )}
+            </>
+          )}
+
+          {tab === 'notices' && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Society Notices</Text>
+              </View>
+              {notices.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Avatar.Icon size={44} icon="bullhorn-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>No notices yet</Text>
+                </View>
+              )}
+              <FlatList data={visibleNotices} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+                <View style={styles.card}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{item.title}</Text>
+                    <Text style={styles.noticeBody}>{item.body}</Text>
+                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                  </View>
+                </View>
+              )} />
+              {notices.length > 5 && (
+                <Button compact textColor={ACCENT} onPress={() => setShowAllNotices(!showAllNotices)}>
+                  {showAllNotices ? 'Show less' : `View all (${notices.length})`}
+                </Button>
+              )}
+            </>
+          )}
+
+          {tab === 'polls' && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Community Polls</Text>
+              </View>
+              {polls.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Avatar.Icon size={44} icon="poll" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>No polls yet</Text>
+                </View>
+              )}
+              {visiblePolls.map((poll) => (
+                <View key={poll.id} style={[styles.card, { marginBottom: 12 }]}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{poll.question}</Text>
+                    {poll.poll_options?.map((opt) => (
+                      <View key={opt.id} style={styles.pollOptionRow}>
+                        <Text style={styles.pollOptionText}>{opt.option_text} — {voteCount(opt.id)} votes</Text>
+                        {!hasVoted(poll.id) && <Button mode="outlined" compact textColor={ACCENT} style={{ borderColor: ACCENT }} onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
+                      </View>
+                    ))}
+                    {hasVoted(poll.id) && <Text style={styles.votedLabel}>✓ You voted</Text>}
+                  </View>
+                </View>
+              ))}
+              {polls.length > 3 && (
+                <Button compact textColor={ACCENT} onPress={() => setShowAllPolls(!showAllPolls)}>
+                  {showAllPolls ? 'Show less' : `View all (${polls.length})`}
+                </Button>
+              )}
+            </>
+          )}
+
+          {tab === 'helpdesk' && (
+            <>
+              <View style={styles.sectionCard}>
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={ACCENT} />
+                  <Text style={styles.sectionTitle}>Raise a Ticket</Text>
+                </View>
+                <View style={styles.chipSelectRow}>
+                  {['general', 'maintenance', 'security', 'other'].map((c) => (
+                    <Chip key={c} selected={ticketCategory === c} onPress={() => setTicketCategory(c)} style={[styles.tabChip, ticketCategory === c && styles.tabChipSelected]} textStyle={ticketCategory === c ? { color: '#fff' } : { color: INK_MUTED }}>
+                      {c}
+                    </Chip>
+                  ))}
+                </View>
+                {ticketCategory === 'other' && (
+                  <View style={styles.inputWrap}>
+                    <TextInput mode="flat" label="Specify category" value={customCategory} onChangeText={setCustomCategory} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+                  </View>
+                )}
+                <View style={styles.inputWrap}>
+                  <TextInput mode="flat" label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} />
+                </View>
+                <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
+                  Submit Ticket
+                </Button>
+              </View>
+
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="ticket-confirmation" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>My Tickets</Text>
+              </View>
+              {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
+              <FlatList data={tickets} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+                <View style={styles.card}>
+                  <View style={{ padding: 16 }}>
+                    <View style={styles.row}>
+                      <Text style={styles.visitorName}>{item.category}</Text>
+                      <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>
+                        {item.status.replace('_', ' ')}
+                      </Chip>
+                    </View>
+                    <Text style={styles.noticeBody}>{item.description}</Text>
+                    <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                  </View>
+                </View>
+              )} />
+            </>
+          )}
+
+          {tab === 'amenities' && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="calendar-check" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Book an Amenity</Text>
+              </View>
+              <Button mode="outlined" onPress={() => setShowDatePicker(true)} icon="calendar" textColor={ACCENT} style={[styles.dateButton]}>
+                {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
+              </Button>
+              {showDatePicker && (
+                <DateTimePicker value={bookingDate ? new Date(bookingDate) : new Date()} mode="date" display="default" minimumDate={new Date()} onChange={onDateChange} />
+              )}
+              {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
+              {amenities.map((amenity) => (
+                <View key={amenity.id} style={[styles.card, { marginBottom: 12 }]}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{amenity.name}</Text>
+                    <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
+                    <View style={styles.slotWrap}>
+                      {amenity.slots.map((slot) => (
+                        <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip} textStyle={{ fontSize: 12, color: INK }}>{slot}</Chip>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              ))}
+
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>My Bookings</Text>
+              </View>
+              {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
+              <FlatList data={myBookings} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+                <View style={styles.card}>
+                  <View style={{ padding: 16 }}>
+                    <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
+                    <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
+                  </View>
+                  <Divider style={{ backgroundColor: BORDER }} />
+                  <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => cancelMyBooking(item.id)}>Cancel</Button></View>
+                </View>
+              )} />
+            </>
+          )}
+
+          {tab === 'dues' && (
+            <>
+              {pendingDues.length > 0 && (
+                <View style={[styles.card, styles.totalDueCard]}>
+                  <View style={{ padding: 16 }}>
                     <Text style={styles.totalDueLabel}>Total Outstanding</Text>
                     <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
                   </View>
-                  <IconButton icon="chevron-right" size={22} iconColor="#fff" style={{ margin: 0 }} />
-                </View>
-              </Pressable>
-            )}
-
-            {/* Latest notice preview */}
-            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Latest Notice</Text>
-              <Pressable onPress={() => goToTab('notices')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
-            </View>
-            {latestNotice ? (
-              <View style={[styles.card, { marginBottom: 20 }]}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.visitorName}>{latestNotice.title}</Text>
-                  <Text style={styles.noticeBody} numberOfLines={2}>{latestNotice.body}</Text>
-                  <Text style={styles.metaFaint}>{new Date(latestNotice.created_at).toLocaleDateString()}</Text>
-                </View>
-              </View>
-            ) : (
-              <Text style={[styles.empty, { marginBottom: 20 }]}>No notices yet</Text>
-            )}
-
-            {/* Upcoming booking preview */}
-            {nextBooking && (
-              <>
-                <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
-                  <Text style={styles.sectionTitle}>Upcoming Booking</Text>
-                  <Pressable onPress={() => goToTab('amenities')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
-                </View>
-                <View style={[styles.card, { marginBottom: 8 }]}>
-                  <View style={{ padding: 16 }}>
-                    <Text style={styles.visitorName}>{amenityNameFor(nextBooking.amenity_id)}</Text>
-                    <Text style={styles.meta}>{nextBooking.booking_date} · {nextBooking.slot}</Text>
-                  </View>
-                </View>
-              </>
-            )}
-          </>
-        )}
-
-        {tab === 'visitors' && (
-          <>
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeaderRow}>
-                <Avatar.Icon size={30} icon="account-plus" style={styles.sectionIcon} color={ACCENT} />
-                <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
-              </View>
-              <View style={styles.inputWrap}>
-                <TextInput mode="flat" label="Guest name" value={guestName} onChangeText={setGuestName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-              </View>
-              <View style={styles.inputWrap}>
-                <TextInput mode="flat" label="Guest phone (optional)" value={guestPhone} onChangeText={setGuestPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-              </View>
-              <View style={styles.photoRow}>
-                {guestPhotoUri ? (
-                  <Image source={{ uri: guestPhotoUri }} style={styles.previewImage} />
-                ) : (
-                  <View style={styles.photoPlaceholder}><Avatar.Icon size={32} icon="camera" style={{ backgroundColor: 'transparent' }} color={INK_FAINT} /></View>
-                )}
-                <Button mode="outlined" onPress={pickGuestPhoto} icon="camera" textColor={ACCENT} style={styles.photoButton}>
-                  {guestPhotoUri ? 'Retake' : 'Add Photo'}
-                </Button>
-              </View>
-              <Button mode="contained" onPress={handlePreApprove} loading={guestLoading} disabled={guestLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-                Pre-approve Guest
-              </Button>
-            </View>
-
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-clock" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Pending Approvals</Text>
-              {pendingRequests.length > 0 && <Text style={styles.countBadge}>{pendingRequests.length}</Text>}
-            </View>
-            {pendingRequests.length === 0 && (
-              <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>No pending requests</Text>
-              </View>
-            )}
-            <FlatList data={pendingRequests} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={{ padding: 16 }}>
-                  <View style={styles.rowWithImage}>
-                    {item.visitors?.photo_url ? (
-                      <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-                    ) : (
-                      <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.visitorName}>{item.visitors?.name}</Text>
-                      <Text style={styles.meta}>{item.visitors?.visitor_type}{item.visitors?.phone ? ` · ${item.visitors.phone}` : ''}</Text>
-                    </View>
-                  </View>
-                </View>
-                <Divider style={{ backgroundColor: BORDER }} />
-                <View style={styles.cardActions}>
-                  <Button textColor={DANGER} onPress={() => respondToRequest(item.id, 'denied')}>Deny</Button>
-                  <Button mode="contained" buttonColor={ACCENT} textColor="#fff" onPress={() => respondToRequest(item.id, 'approved')}>Approve</Button>
-                </View>
-              </View>
-            )} />
-
-            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-              <Avatar.Icon size={30} icon="history" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>History</Text>
-            </View>
-            {pastRequests.length === 0 && <Text style={styles.empty}>No visitor history yet</Text>}
-            <FlatList data={visibleHistory} keyExtractor={(item) => item.id} scrollEnabled={false} renderItem={({ item }) => (
-              <View style={styles.historyRow}>
-                {item.visitors?.photo_url ? (
-                  <Image source={{ uri: item.visitors.photo_url }} style={styles.thumbSmall} />
-                ) : (
-                  <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.historyName}>{item.visitors?.name}</Text>
-                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleDateString()}</Text>
-                </View>
-                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: item.status === 'approved' ? SUCCESS : DANGER }} style={{ backgroundColor: item.status === 'approved' ? SUCCESS_BG : DANGER_BG }}>
-                  {item.pre_approved ? 'pre-approved' : item.status}
-                </Chip>
-              </View>
-            )} />
-            {pastRequests.length > 5 && (
-              <Button compact textColor={ACCENT} onPress={() => setShowAllHistory(!showAllHistory)}>
-                {showAllHistory ? 'Show less' : `View all (${pastRequests.length})`}
-              </Button>
-            )}
-          </>
-        )}
-
-        {tab === 'notices' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Society Notices</Text>
-            </View>
-            {notices.length === 0 && (
-              <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="bullhorn-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>No notices yet</Text>
-              </View>
-            )}
-            <FlatList data={visibleNotices} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.visitorName}>{item.title}</Text>
-                  <Text style={styles.noticeBody}>{item.body}</Text>
-                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-                </View>
-              </View>
-            )} />
-            {notices.length > 5 && (
-              <Button compact textColor={ACCENT} onPress={() => setShowAllNotices(!showAllNotices)}>
-                {showAllNotices ? 'Show less' : `View all (${notices.length})`}
-              </Button>
-            )}
-          </>
-        )}
-
-        {tab === 'polls' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Community Polls</Text>
-            </View>
-            {polls.length === 0 && (
-              <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="poll" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>No polls yet</Text>
-              </View>
-            )}
-            {visiblePolls.map((poll) => (
-              <View key={poll.id} style={[styles.card, { marginBottom: 12 }]}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.visitorName}>{poll.question}</Text>
-                  {poll.poll_options?.map((opt) => (
-                    <View key={opt.id} style={styles.pollOptionRow}>
-                      <Text style={styles.pollOptionText}>{opt.option_text} — {voteCount(opt.id)} votes</Text>
-                      {!hasVoted(poll.id) && <Button mode="outlined" compact textColor={ACCENT} style={{ borderColor: ACCENT }} onPress={() => castVote(poll.id, opt.id)}>Vote</Button>}
-                    </View>
-                  ))}
-                  {hasVoted(poll.id) && <Text style={styles.votedLabel}>✓ You voted</Text>}
-                </View>
-              </View>
-            ))}
-            {polls.length > 3 && (
-              <Button compact textColor={ACCENT} onPress={() => setShowAllPolls(!showAllPolls)}>
-                {showAllPolls ? 'Show less' : `View all (${polls.length})`}
-              </Button>
-            )}
-          </>
-        )}
-
-        {tab === 'helpdesk' && (
-          <>
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeaderRow}>
-                <Avatar.Icon size={30} icon="headset" style={styles.sectionIcon} color={ACCENT} />
-                <Text style={styles.sectionTitle}>Raise a Ticket</Text>
-              </View>
-              <View style={styles.chipSelectRow}>
-                {['general', 'maintenance', 'security', 'other'].map((c) => (
-                  <Chip key={c} selected={ticketCategory === c} onPress={() => setTicketCategory(c)} style={[styles.tabChip, ticketCategory === c && styles.tabChipSelected]} textStyle={ticketCategory === c ? { color: '#fff' } : { color: INK_MUTED }}>
-                    {c}
-                  </Chip>
-                ))}
-              </View>
-              {ticketCategory === 'other' && (
-                <View style={styles.inputWrap}>
-                  <TextInput mode="flat" label="Specify category" value={customCategory} onChangeText={setCustomCategory} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
                 </View>
               )}
-              <View style={styles.inputWrap}>
-                <TextInput mode="flat" label="Describe the issue" value={ticketDescription} onChangeText={setTicketDescription} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} />
-              </View>
-              <Button mode="contained" onPress={handleRaiseTicket} loading={ticketLoading} disabled={ticketLoading} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>
-                Submit Ticket
-              </Button>
-            </View>
 
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="ticket-confirmation" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>My Tickets</Text>
-            </View>
-            {tickets.length === 0 && <Text style={styles.empty}>No tickets raised yet</Text>}
-            <FlatList data={tickets} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={{ padding: 16 }}>
-                  <View style={styles.row}>
-                    <Text style={styles.visitorName}>{item.category}</Text>
-                    <Chip compact textStyle={{ color: ticketStatusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: ticketStatusBg(item.status) }}>
-                      {item.status.replace('_', ' ')}
-                    </Chip>
-                  </View>
-                  <Text style={styles.noticeBody}>{item.description}</Text>
-                  <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+              <View style={[styles.sectionHeaderRow, { marginTop: pendingDues.length > 0 ? 20 : 0 }]}>
+                <Avatar.Icon size={30} icon="cash-clock" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Pending Dues</Text>
+                {pendingDues.length > 0 && <Text style={styles.countBadge}>{pendingDues.length}</Text>}
+              </View>
+              {pendingDues.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
+                  <Text style={styles.empty}>No pending dues — all clear!</Text>
                 </View>
-              </View>
-            )} />
-          </>
-        )}
-
-        {tab === 'amenities' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="calendar-check" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Book an Amenity</Text>
-            </View>
-            <Button mode="outlined" onPress={() => setShowDatePicker(true)} icon="calendar" textColor={ACCENT} style={[styles.dateButton]}>
-              {bookingDate ? `Date: ${bookingDate}` : 'Pick a Date'}
-            </Button>
-            {showDatePicker && (
-              <DateTimePicker value={bookingDate ? new Date(bookingDate) : new Date()} mode="date" display="default" minimumDate={new Date()} onChange={onDateChange} />
-            )}
-            {amenities.length === 0 && <Text style={styles.empty}>No amenities available yet</Text>}
-            {amenities.map((amenity) => (
-              <View key={amenity.id} style={[styles.card, { marginBottom: 12 }]}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.visitorName}>{amenity.name}</Text>
-                  <Text style={styles.meta}>Capacity: {amenity.capacity}</Text>
-                  <View style={styles.slotWrap}>
-                    {amenity.slots.map((slot) => (
-                      <Chip key={slot} onPress={() => handleBookSlot(amenity, slot)} style={styles.slotChip} textStyle={{ fontSize: 12, color: INK }}>{slot}</Chip>
-                    ))}
+              )}
+              {pendingDues.map((d) => (
+                <View key={d.id} style={[styles.card, { marginBottom: 12 }]}>
+                  <View style={{ padding: 16 }}>
+                    <View style={styles.row}>
+                      <Text style={styles.visitorName}>{d.description}</Text>
+                      <Text style={styles.dueAmount}>₹{d.amount}</Text>
+                    </View>
+                    <Text style={styles.metaFaint}>Due by {d.due_date}</Text>
+                  </View>
+                  <Divider style={{ backgroundColor: BORDER }} />
+                  <View style={styles.cardActions}>
+                    <Button
+                      mode="contained"
+                      buttonColor={ACCENT}
+                      textColor="#fff"
+                      loading={payingId === d.id}
+                      disabled={payingId === d.id}
+                      onPress={() => payDue(d.id)}
+                    >
+                      Pay Now
+                    </Button>
                   </View>
                 </View>
-              </View>
-            ))}
+              ))}
 
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>My Bookings</Text>
-            </View>
-            {myBookings.length === 0 && <Text style={styles.empty}>No bookings yet</Text>}
-            <FlatList data={myBookings} keyExtractor={(item) => item.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.visitorName}>{amenityNameFor(item.amenity_id)}</Text>
-                  <Text style={styles.meta}>{item.booking_date} · {item.slot}</Text>
-                </View>
-                <Divider style={{ backgroundColor: BORDER }} />
-                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => cancelMyBooking(item.id)}>Cancel</Button></View>
+              <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
+                <Avatar.Icon size={30} icon="cash-check" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Payment History</Text>
               </View>
-            )} />
-          </>
-        )}
-
-        {tab === 'dues' && (
-          <>
-            {pendingDues.length > 0 && (
-              <View style={[styles.card, styles.totalDueCard]}>
-                <View style={{ padding: 16 }}>
-                  <Text style={styles.totalDueLabel}>Total Outstanding</Text>
-                  <Text style={styles.totalDueAmount}>₹{totalDue.toFixed(2)}</Text>
-                </View>
-              </View>
-            )}
-
-            <View style={[styles.sectionHeaderRow, { marginTop: pendingDues.length > 0 ? 20 : 0 }]}>
-              <Avatar.Icon size={30} icon="cash-clock" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Pending Dues</Text>
-              {pendingDues.length > 0 && <Text style={styles.countBadge}>{pendingDues.length}</Text>}
-            </View>
-            {pendingDues.length === 0 && (
-              <View style={styles.emptyState}>
-                <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                <Text style={styles.empty}>No pending dues — all clear!</Text>
-              </View>
-            )}
-            {pendingDues.map((d) => (
-              <View key={d.id} style={[styles.card, { marginBottom: 12 }]}>
-                <View style={{ padding: 16 }}>
-                  <View style={styles.row}>
-                    <Text style={styles.visitorName}>{d.description}</Text>
-                    <Text style={styles.dueAmount}>₹{d.amount}</Text>
+              {paidDues.length === 0 && <Text style={styles.empty}>No payments yet</Text>}
+              {paidDues.map((d) => (
+                <View key={d.id} style={styles.historyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.historyName}>{d.description}</Text>
+                    <Text style={styles.metaFaint}>Paid {d.paid_at ? new Date(d.paid_at).toLocaleDateString() : ''}</Text>
                   </View>
-                  <Text style={styles.metaFaint}>Due by {d.due_date}</Text>
+                  <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: SUCCESS }} style={{ backgroundColor: SUCCESS_BG }}>
+                    ₹{d.amount}
+                  </Chip>
                 </View>
-                <Divider style={{ backgroundColor: BORDER }} />
-                <View style={styles.cardActions}>
-                  <Button
-                    mode="contained"
-                    buttonColor={ACCENT}
-                    textColor="#fff"
-                    loading={payingId === d.id}
-                    disabled={payingId === d.id}
-                    onPress={() => payDue(d.id)}
-                  >
-                    Pay Now
-                  </Button>
-                </View>
-              </View>
-            ))}
+              ))}
+            </>
+          )}
 
-            <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
-              <Avatar.Icon size={30} icon="cash-check" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Payment History</Text>
-            </View>
-            {paidDues.length === 0 && <Text style={styles.empty}>No payments yet</Text>}
-            {paidDues.map((d) => (
-              <View key={d.id} style={styles.historyRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.historyName}>{d.description}</Text>
-                  <Text style={styles.metaFaint}>Paid {d.paid_at ? new Date(d.paid_at).toLocaleDateString() : ''}</Text>
-                </View>
-                <Chip compact textStyle={{ fontSize: 11, fontWeight: '600', color: SUCCESS }} style={{ backgroundColor: SUCCESS_BG }}>
-                  ₹{d.amount}
-                </Chip>
+          {tab === 'staff' && (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="account-hard-hat" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Staff & Service Directory</Text>
               </View>
-            ))}
-          </>
-        )}
-
-        {tab === 'staff' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Avatar.Icon size={30} icon="account-hard-hat" style={styles.sectionIcon} color={ACCENT} />
-              <Text style={styles.sectionTitle}>Staff & Service Directory</Text>
-            </View>
-            {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
-            {staff.map((s) => (
-              <View key={s.id} style={[styles.card, { marginBottom: 12 }]}>
-                <View style={{ padding: 16 }}>
-                  <View style={styles.rowWithImage}>
-                    {s.photo_url ? (
-                      <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
-                    ) : (
-                      <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
-                    )}
-                    <View>
-                      <Text style={styles.visitorName}>{s.name}</Text>
-                      <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+              {staff.length === 0 && <Text style={styles.empty}>No entries yet</Text>}
+              {staff.map((s) => (
+                <View key={s.id} style={[styles.card, { marginBottom: 12 }]}>
+                  <View style={{ padding: 16 }}>
+                    <View style={styles.rowWithImage}>
+                      {s.photo_url ? (
+                        <Image source={{ uri: s.photo_url }} style={styles.thumbSmall} />
+                      ) : (
+                        <View style={styles.thumbPlaceholderSmall}><Text style={styles.thumbInitialSmall}>{s.name[0]?.toUpperCase()}</Text></View>
+                      )}
+                      <View>
+                        <Text style={styles.visitorName}>{s.name}</Text>
+                        <Text style={styles.meta}>{s.service_type}{s.phone ? ` · ${s.phone}` : ''}</Text>
+                      </View>
                     </View>
                   </View>
                 </View>
-              </View>
-            ))}
-          </>
-        )}
+              ))}
+            </>
+          )}
 
-        {/* extra bottom padding so content never sits under the fixed bottom nav */}
-        <View style={{ height: 90 }} />
-      </ScrollView>
+          <View style={{ height: 90 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ---------------- Bottom Nav Bar ---------------- */}
-      <View style={styles.bottomNav}>
-        <Pressable style={styles.navItem} onPress={() => setTab('home')} hitSlop={8}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 10 }]}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('home')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'home' && styles.navIconWrapActive]}>
             <IconButton icon="home-variant" size={22} iconColor={tab === 'home' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
           </View>
           <Text style={[styles.navLabel, tab === 'home' && styles.navLabelActive]}>Home</Text>
         </Pressable>
 
-        <Pressable style={styles.navItem} onPress={() => setTab('notices')} hitSlop={8}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('notices')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'notices' && styles.navIconWrapActive]}>
             <IconButton icon="bullhorn-outline" size={22} iconColor={tab === 'notices' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
           </View>
           <Text style={[styles.navLabel, tab === 'notices' && styles.navLabelActive]}>Notices</Text>
         </Pressable>
 
-        <Pressable style={styles.navItem} onPress={() => setTab('visitors')} hitSlop={8}>
+        <Pressable style={styles.navItem} onPress={() => goToTab('visitors')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'visitors' && styles.navIconWrapActive]}>
             <IconButton icon="account-group-outline" size={22} iconColor={tab === 'visitors' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
             {pendingRequests.length > 0 && tab !== 'visitors' && <View style={styles.navDot} />}
@@ -862,7 +871,7 @@ export default function ResidentHome() {
         </Pressable>
       </View>
 
-      {/* ---------------- More — grid of app sections ---------------- */}
+      {/* ---------------- More — grid sheet ---------------- */}
       <Modal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setMoreOpen(false)}>
           <Pressable style={styles.sheetCard} onPress={() => {}}>
@@ -884,17 +893,16 @@ export default function ResidentHome() {
         </Pressable>
       </Modal>
 
-      {/* ---------------- Profile — full page, about you only ---------------- */}
+      {/* ---------------- Profile Modal ---------------- */}
       <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
         <View style={styles.profileScreen}>
-          <View style={styles.profileTopBar}>
+          <View style={[styles.profileTopBar, { paddingTop: insets.top + 12 }]}>
             <IconButton icon="arrow-left" size={24} iconColor={INK} onPress={() => setProfileOpen(false)} style={{ margin: 0 }} />
             <Text style={styles.profileTopBarTitle}>Profile</Text>
             <View style={{ width: 40 }} />
           </View>
 
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-            {/* Identity card */}
             <View style={styles.profileIdCard}>
               <View style={styles.profileBigAvatar}>
                 <Text style={styles.profileBigAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? '?'}</Text>
@@ -917,7 +925,6 @@ export default function ResidentHome() {
               ) : null}
             </View>
 
-            {/* Stats — read-only summary of your account, not navigation */}
             <Text style={styles.profileSectionLabel}>Your Summary</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statTile}>
@@ -934,7 +941,6 @@ export default function ResidentHome() {
               </View>
             </View>
 
-            {/* Log out */}
             <Pressable style={styles.logoutButton} onPress={() => { setProfileOpen(false); handleLogout(); }}>
               <IconButton icon="logout" size={20} iconColor={DANGER} style={{ margin: 0 }} />
               <Text style={styles.logoutButtonText}>Log Out</Text>
@@ -952,7 +958,7 @@ const styles = StyleSheet.create({
   // ---- Header ----
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingTop: 56, paddingHorizontal: 20, paddingBottom: 18,
+    paddingHorizontal: 20, paddingBottom: 18,
     backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   greeting: { fontSize: 13, color: INK_MUTED, fontWeight: '600' },
@@ -1032,7 +1038,6 @@ const styles = StyleSheet.create({
     backgroundColor: CARD_BG,
     borderTopWidth: 1,
     borderTopColor: BORDER,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
     paddingTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -1073,11 +1078,10 @@ const styles = StyleSheet.create({
   },
   moreGridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  
   profileScreen: { flex: 1, backgroundColor: PAGE_BG },
   profileTopBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 56, paddingHorizontal: 8, paddingBottom: 12,
+    paddingHorizontal: 8, paddingBottom: 12,
     backgroundColor: CARD_BG, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
   profileTopBarTitle: { fontSize: 17, fontWeight: '700', color: INK },
