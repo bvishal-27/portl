@@ -487,13 +487,13 @@ export default function GuardHome() {
               {/* Awaiting admin approval preview */}
               <View style={[styles.sectionHeaderRow, { marginTop: awaitingEntry.length > 0 ? 8 : 8 }]}>
                 <Avatar.Icon size={30} icon="clock-alert-outline" style={{ backgroundColor: '#FBF3E4' }} color={GOLD} />
-                <Text style={styles.sectionTitle}>Awaiting Admin Approval</Text>
+                <Text style={styles.sectionTitle}>Awaiting Resident Approval</Text>
                 <Pressable onPress={() => goToTab('requests')}><Text style={styles.viewAllLink}>View all</Text></Pressable>
               </View>
               {awaitingApproval.length === 0 ? (
                 <View style={[styles.emptyState, { marginBottom: 12 }]}>
                   <Avatar.Icon size={44} icon="check-circle-outline" style={{ backgroundColor: ACCENT_SOFT }} color={ACCENT} />
-                  <Text style={styles.empty}>Nothing waiting on admin right now</Text>
+                  <Text style={styles.empty}>Nothing waiting on residents right now</Text>
                 </View>
               ) : (
                 awaitingApproval.map((item) => (
