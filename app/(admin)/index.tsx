@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image, Platform, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, Alert, Image, Platform, Modal, Pressable, KeyboardAvoidingView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chip, TextInput, SegmentedButtons, Avatar, Divider, IconButton } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -452,7 +453,8 @@ const deleteDue = async (id: string) => {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
       {/* ---------------- Top Header ---------------- */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
@@ -465,7 +467,7 @@ const deleteDue = async (id: string) => {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {tab === 'home' && (
           <>
             {/* Quick stats */}
@@ -645,8 +647,8 @@ const deleteDue = async (id: string) => {
         <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
         <Text style={styles.sectionTitle}>Post a Notice</Text>
       </View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
       <Button mode="contained" onPress={handleCreateNotice} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
     </View>
     <View style={styles.sectionHeaderRow}>
@@ -674,9 +676,9 @@ const deleteDue = async (id: string) => {
         <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
         <Text style={styles.sectionTitle}>Create a Poll</Text>
       </View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
       <Button mode="contained" onPress={handleCreatePoll} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
     </View>
     <View style={styles.sectionHeaderRow}>
@@ -735,8 +737,8 @@ const deleteDue = async (id: string) => {
                 <Avatar.Icon size={30} icon="calendar-plus" style={styles.sectionIcon} color={ACCENT} />
                 <Text style={styles.sectionTitle}>Add Amenity</Text>
               </View>
-              <View style={styles.inputWrap}><TextInput mode="flat" label="Amenity name" value={amenityName} onChangeText={setAmenityName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-              <View style={styles.inputWrap}><TextInput mode="flat" label="Capacity per slot" value={amenityCapacity} onChangeText={setAmenityCapacity} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Amenity name" value={amenityName} onChangeText={setAmenityName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Capacity per slot" value={amenityCapacity} onChangeText={setAmenityCapacity} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
               <Button mode="contained" onPress={handleCreateAmenity} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Amenity</Button>
             </View>
 
@@ -780,9 +782,9 @@ const deleteDue = async (id: string) => {
                 <Avatar.Icon size={30} icon="cash-plus" style={styles.sectionIcon} color={ACCENT} />
                 <Text style={styles.sectionTitle}>Add a Due</Text>
               </View>
-              <View style={styles.inputWrap}><TextInput mode="flat" label="Description (e.g. Maintenance - August)" value={dueDescription} onChangeText={setDueDescription} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-              <View style={styles.inputWrap}><TextInput mode="flat" label="Amount (₹)" value={dueAmount} onChangeText={setDueAmount} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
-              <View style={styles.inputWrap}><TextInput mode="flat" label="Due date (YYYY-MM-DD)" value={dueDate} onChangeText={setDueDate} placeholder="2026-08-05" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Description (e.g. Maintenance - August)" value={dueDescription} onChangeText={setDueDescription} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Amount (₹)" value={dueAmount} onChangeText={setDueAmount} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Due date (YYYY-MM-DD)" value={dueDate} onChangeText={setDueDate} placeholder="2026-08-05" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
 
               <Chip
                 selected={dueApplyAll}
@@ -857,7 +859,7 @@ const deleteDue = async (id: string) => {
 
             {societySubTab === 'towers' && (
               <View style={styles.sectionCard}>
-                <View style={styles.inputWrap}><TextInput mode="flat" label="Tower name (e.g. Tower B)" value={towerName} onChangeText={setTowerName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                <View style={styles.inputWrap}><TextInput mode="flat" label="Tower name (e.g. Tower B)" value={towerName} onChangeText={setTowerName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
                 <Button mode="contained" onPress={handleCreateTower} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Tower</Button>
               </View>
             )}
@@ -877,7 +879,7 @@ const deleteDue = async (id: string) => {
                     <Chip key={t.id} selected={flatTowerId === t.id} onPress={() => setFlatTowerId(t.id)} style={[styles.filterChip, flatTowerId === t.id && styles.chipSelected]} textStyle={flatTowerId === t.id ? styles.chipTextSelected : styles.chipText}>{t.name}</Chip>
                   ))}
                 </View>
-                <View style={styles.inputWrap}><TextInput mode="flat" label="Flat number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                <View style={styles.inputWrap}><TextInput mode="flat" label="Flat number" value={flatNumber} onChangeText={setFlatNumber} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
                 <Button mode="contained" onPress={handleCreateFlat} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Flat</Button>
               </View>
             )}
@@ -966,7 +968,7 @@ const deleteDue = async (id: string) => {
             {societySubTab === 'staff' && (
               <View>
                 <View style={styles.sectionCard}>
-                  <View style={styles.inputWrap}><TextInput mode="flat" label="Staff/service name" value={staffName} onChangeText={setStaffName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                  <View style={styles.inputWrap}><TextInput mode="flat" label="Staff/service name" value={staffName} onChangeText={setStaffName} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
                   <SegmentedButtons
                     value={staffType}
                     onValueChange={setStaffType}
@@ -979,7 +981,7 @@ const deleteDue = async (id: string) => {
                       { value: 'other', label: 'Other' },
                     ]}
                   />
-                  <View style={styles.inputWrap}><TextInput mode="flat" label="Phone" value={staffPhone} onChangeText={setStaffPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+                  <View style={styles.inputWrap}><TextInput mode="flat" label="Phone" value={staffPhone} onChangeText={setStaffPhone} keyboardType="phone-pad" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
                   <View style={styles.photoRow}>
                     {staffPhotoUri ? (
                       <Image source={{ uri: staffPhotoUri }} style={styles.previewImage} />
@@ -1019,6 +1021,7 @@ const deleteDue = async (id: string) => {
         {/* extra bottom padding so content never sits under the fixed bottom nav */}
         <View style={{ height: 90 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ---------------- Bottom Nav Bar ---------------- */}
       <View style={styles.bottomNav}>
@@ -1141,7 +1144,7 @@ const deleteDue = async (id: string) => {
           </ScrollView>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
