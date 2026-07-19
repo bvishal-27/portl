@@ -32,15 +32,15 @@ Deno.serve(async (req) => {
       .eq('id', record.visitor_id)
       .single();
 
-    const messages = residents
-      .filter((r) => r.push_token)
-      .map((r) => ({
-        to: r.push_token,
-        sound: 'default',
-        title: 'Visitor at the gate',
-        body: `${visitor?.name ?? 'A visitor'} (${visitor?.visitor_type ?? 'guest'}) is waiting for approval`,
-        data: { requestId: record.id },
-      }));
+    const uniqueTokens = [...new Set(residents.filter((r) => r.push_token).map((r) => r.push_token))];
+
+const messages = uniqueTokens.map((token) => ({
+  to: token,
+  sound: 'default',
+  title: 'Visitor at the gate',
+  body: `${visitor?.name ?? 'A visitor'} (${visitor?.visitor_type ?? 'guest'}) is waiting for approval`,
+  data: { requestId: record.id },
+}));
 
     if (messages.length === 0) {
       return new Response(JSON.stringify({ skipped: 'no push tokens' }), { status: 200 });
