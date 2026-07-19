@@ -9,6 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { TextInput, Text, Chip } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { router } from 'expo-router';
 
@@ -62,6 +63,14 @@ export default function Signup() {
       Alert.alert('Missing info', 'Fill all fields and select your tower and flat');
       return;
     }
+    if (fullName.trim().length < 3 || fullName.trim().length > 15) {
+      Alert.alert('Invalid name', 'Full name must be between 3 and 15 characters');
+      return;
+    }
+    if (phone.trim().length > 0 && !/^\d{10}$/.test(phone.trim())) {
+      Alert.alert('Invalid phone', 'Phone number must be exactly 10 digits');
+      return;
+    }
     if (password.length < 6) {
       Alert.alert('Weak password', 'Password must be at least 6 characters');
       return;
@@ -110,7 +119,7 @@ export default function Signup() {
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.logoMark}>
@@ -132,6 +141,7 @@ export default function Signup() {
                 label="Full Name"
                 value={fullName}
                 onChangeText={setFullName}
+                maxLength={15}
                 onFocus={() => setNameFocused(true)}
                 onBlur={() => setNameFocused(false)}
                 style={styles.input}
@@ -139,6 +149,8 @@ export default function Signup() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="account-outline" color={nameFocused ? ACCENT : INK_FAINT} />}
               />
             </View>
@@ -158,6 +170,8 @@ export default function Signup() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="email-outline" color={emailFocused ? ACCENT : INK_FAINT} />}
               />
             </View>
@@ -165,10 +179,11 @@ export default function Signup() {
             <View style={[styles.inputWrap, phoneFocused && styles.inputWrapFocused]}>
               <TextInput
                 mode="flat"
-                label="Phone (optional)"
+                label="Phone"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(t) => setPhone(t.replace(/\D/g, ''))}
                 keyboardType="phone-pad"
+                maxLength={10}
                 onFocus={() => setPhoneFocused(true)}
                 onBlur={() => setPhoneFocused(false)}
                 style={styles.input}
@@ -176,6 +191,8 @@ export default function Signup() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="phone-outline" color={phoneFocused ? ACCENT : INK_FAINT} />}
               />
             </View>
@@ -194,6 +211,8 @@ export default function Signup() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="lock-outline" color={passwordFocused ? ACCENT : INK_FAINT} />}
                 right={
                   <TextInput.Icon
@@ -271,7 +290,7 @@ export default function Signup() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -283,7 +302,7 @@ const styles = StyleSheet.create({
   logoMark: {
     alignSelf: 'center',
     width: 56, height: 56, borderRadius: 16,
-    backgroundColor: INK,
+    backgroundColor: ACCENT,
     justifyContent: 'center', alignItems: 'center',
     marginBottom: 14,
   },

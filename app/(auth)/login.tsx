@@ -11,6 +11,7 @@ import {
   Animated,
   Pressable,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { TextInput, Text } from 'react-native-paper';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -95,7 +96,7 @@ export default function Login() {
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.logoMark}>
@@ -126,6 +127,8 @@ export default function Login() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="email-outline" color={emailFocused ? ACCENT : INK_FAINT} />}
               />
             </View>
@@ -144,6 +147,8 @@ export default function Login() {
                 activeUnderlineColor="transparent"
                 textColor={INK}
                 theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
                 left={<TextInput.Icon icon="lock-outline" color={passwordFocused ? ACCENT : INK_FAINT} />}
                 right={
                   <TextInput.Icon
@@ -182,7 +187,7 @@ export default function Login() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -194,7 +199,7 @@ const styles = StyleSheet.create({
   logoMark: {
     alignSelf: 'center',
     width: 60, height: 60, borderRadius: 18,
-    backgroundColor: INK,
+    backgroundColor: ACCENT,
     justifyContent: 'center', alignItems: 'center',
     marginBottom: 16,
   },
