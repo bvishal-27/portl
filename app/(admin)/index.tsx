@@ -41,6 +41,7 @@ type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 type Profile = { id: string; full_name: string; role: string; flat_id: string | null; approved: boolean };
 type Staff = { id: string; name: string; service_type: string; phone: string | null; photo_url: string | null };
+type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
 
 const MAIN_TABS = [
   { key: 'visitors', label: 'Visitors', icon: 'account-group' },
@@ -48,6 +49,7 @@ const MAIN_TABS = [
   { key: 'polls', label: 'Polls', icon: 'poll' },
   { key: 'tickets', label: 'Tickets', icon: 'headset' },
   { key: 'amenities', label: 'Amenities', icon: 'calendar-check' },
+  { key: 'dues', label: 'Dues', icon: 'cash-multiple' },
   { key: 'society', label: 'Society', icon: 'domain' },
 ];
 
@@ -83,6 +85,12 @@ const [allPolls, setAllPolls] = useState<{ id: string; question: string; created
   const [staffPhone, setStaffPhone] = useState('');
   const [staffPhotoUri, setStaffPhotoUri] = useState<string | null>(null);
   const [reassigningId, setReassigningId] = useState<string | null>(null);
+  const [dues, setDues] = useState<Due[]>([]);
+const [dueFlatId, setDueFlatId] = useState('');
+const [dueDescription, setDueDescription] = useState('');
+const [dueAmount, setDueAmount] = useState('');
+const [dueDate, setDueDate] = useState('');
+const [dueApplyAll, setDueApplyAll] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -131,10 +139,16 @@ const fetchAllPolls = async () => {
   const { data } = await supabase.from('polls').select('id, question, created_at').order('created_at', { ascending: false });
   if (data) setAllPolls(data);
 };
+const fetchDues = async () => {
+  const { data } = await supabase.from('dues').select('*').order('due_date', { ascending: false });
+  if (data) setDues(data);
+};
 
   useEffect(() => {
     fetchRequests(); fetchTickets(); fetchAmenities(); fetchBookings();
-    fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls();
+
+fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues();
+
 
     const channels = [
       supabase.channel('visitor_requests_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests' }, fetchRequests).subscribe(),
@@ -147,7 +161,10 @@ const fetchAllPolls = async () => {
       supabase.channel('profiles_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchResidents).subscribe(),
     supabase.channel('notices_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchAllNotices).subscribe(),
 supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, fetchAllPolls).subscribe(),
-    ];
+    supabase.channel('dues_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'dues' }, fetchDues).subscribe(),
+    ];   
+
+
     return () => channels.forEach((c) => supabase.removeChannel(c));
   }, []);
 
@@ -334,6 +351,48 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
     Alert.alert('Updated', 'Resident reassigned to new flat');
     fetchResidents();
   }
+};
+const handleCreateDue = async () => {
+  if (!dueDescription || !dueAmount || !dueDate) {
+    Alert.alert('Missing info', 'Fill description, amount and due date');
+    return;
+  }
+  if (!dueApplyAll && !dueFlatId) {
+    Alert.alert('Missing info', 'Select a flat, or toggle "Apply to all flats"');
+    return;
+  }
+  const amountNum = parseFloat(dueAmount);
+  if (isNaN(amountNum) || amountNum <= 0) {
+    Alert.alert('Invalid amount', 'Enter a valid positive number');
+    return;
+  }
+
+  const targetFlats = dueApplyAll ? flats.map((f) => f.id) : [dueFlatId];
+
+  const rows = targetFlats.map((flat_id) => ({
+    flat_id,
+    description: dueDescription,
+    amount: amountNum,
+    due_date: dueDate,
+    status: 'pending',
+  }));
+
+  const { error } = await supabase.from('dues').insert(rows);
+  if (error) {
+    Alert.alert('Error', error.message);
+    return;
+  }
+  Alert.alert('Due added', `Applied to ${targetFlats.length} flat(s)`);
+  setDueDescription('');
+  setDueAmount('');
+  setDueDate('');
+  setDueFlatId('');
+  setDueApplyAll(false);
+};
+
+const deleteDue = async (id: string) => {
+  const { error } = await supabase.from('dues').delete().eq('id', id);
+  if (error) Alert.alert('Error', error.message);
 };
 
   const today = new Date().toDateString();
@@ -569,7 +628,70 @@ const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
           </>
         )}
 
+{tab === 'dues' && (
+          <View>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="cash-plus" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Add a Due</Text>
+              </View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Description (e.g. Maintenance - August)" value={dueDescription} onChangeText={setDueDescription} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Amount (₹)" value={dueAmount} onChangeText={setDueAmount} keyboardType="numeric" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Due date (YYYY-MM-DD)" value={dueDate} onChangeText={setDueDate} placeholder="2026-08-05" style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} /></View>
+
+              <Chip
+                selected={dueApplyAll}
+                onPress={() => { setDueApplyAll(!dueApplyAll); setDueFlatId(''); }}
+                style={[styles.filterChip, dueApplyAll && styles.chipSelected, { marginBottom: 12 }]}
+                textStyle={dueApplyAll ? styles.chipTextSelected : styles.chipText}
+                icon="domain"
+              >
+                Apply to all flats
+              </Chip>
+
+              {!dueApplyAll && (
+                <>
+                  <Text style={styles.fieldLabel}>Select flat</Text>
+                  <View style={styles.filterRow}>
+                    {flats.map((f) => (
+                      <Chip key={f.id} selected={dueFlatId === f.id} onPress={() => setDueFlatId(f.id)} style={[styles.filterChip, dueFlatId === f.id && styles.chipSelected]} textStyle={dueFlatId === f.id ? styles.chipTextSelected : styles.chipText}>
+                        {f.flat_number}
+                      </Chip>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              <Button mode="contained" onPress={handleCreateDue} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Add Due</Button>
+            </View>
+
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="cash-multiple" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>All Dues ({dues.length})</Text>
+            </View>
+            {dues.length === 0 && <Text style={styles.empty}>No dues added yet</Text>}
+            {dues.map((d) => (
+              <View key={d.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <View style={styles.row}>
+                    <Text style={styles.visitorName}>Flat {flatNumberFor(d.flat_id)}</Text>
+                    <Chip compact textStyle={{ color: d.status === 'paid' ? SUCCESS : WARN, fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: d.status === 'paid' ? SUCCESS_BG : WARN_BG }}>
+                      {d.status}
+                    </Chip>
+                  </View>
+                  <Text style={styles.meta}>{d.description} · ₹{d.amount}</Text>
+                  <Text style={styles.metaFaint}>Due: {d.due_date}{d.paid_at ? ` · Paid: ${new Date(d.paid_at).toLocaleDateString()}` : ''}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteDue(d.id)}>Delete</Button></View>
+              </View>
+            ))}
+          </View>
+        )}
+
         {tab === 'society' && (
+
+        
           <View>
             <View style={styles.filterRow}>
               {['towers', 'flats', 'residents', 'staff'].map((s) => (
