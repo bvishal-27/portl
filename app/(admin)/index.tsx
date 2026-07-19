@@ -277,8 +277,15 @@ const deleteFlat = async (id: string) => {
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: async () => {
       const { error } = await supabase.from('flats').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-      else fetchFlats();
+      if (error) {
+        if (error.code === '23503') {
+          Alert.alert('Cannot delete', 'This flat has visitor records, residents, or dues linked to it. Remove those first, or reassign the resident to a different flat.');
+        } else {
+          Alert.alert('Error', error.message);
+        }
+        return;
+      }
+      fetchFlats();
     }},
   ]);
 };
