@@ -135,6 +135,8 @@ export default function ResidentHome() {
 
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [sosOpen, setSosOpen] = useState(false);
+  const [sosLoading, setSosLoading] = useState(false);
   const [myProfile, setMyProfile] = useState<MyProfile | null>(null);
 
   const userId = useAuthStore((s) => s.userId);
@@ -144,6 +146,30 @@ export default function ResidentHome() {
     await supabase.auth.signOut();
     clearSession();
     router.replace("/(auth)/login");
+  };
+
+  const sendSOS = async (emergencyType: string) => {
+    if (sosLoading || !flatId) return;
+    setSosLoading(true);
+    try {
+      const { error } = await supabase.from("sos_alerts").insert({
+        resident_id: userId,
+        flat_id: flatId,
+        emergency_type: emergencyType,
+        status: "active",
+      });
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+      setSosOpen(false);
+      Alert.alert(
+        "Alert Sent",
+        "Guard and admin have been notified immediately.",
+      );
+    } finally {
+      setSosLoading(false);
+    }
   };
 
   const fetchRequests = async (currentFlatId: string) => {
@@ -615,6 +641,16 @@ export default function ResidentHome() {
 
   return (
     <View style={styles.screen}>
+      <Pressable style={styles.sosFab} onPress={() => setSosOpen(true)}>
+        <IconButton
+          icon="alert-octagon"
+          size={24}
+          iconColor="#fff"
+          style={{ margin: 0 }}
+        />
+        <Text style={styles.sosFabText}>SOS</Text>
+      </Pressable>
+
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>{greeting},</Text>
@@ -1820,6 +1856,48 @@ export default function ResidentHome() {
           </ScrollView>
         </View>
       </Modal>
+
+      <Modal
+        visible={sosOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSosOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setSosOpen(false)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Emergency Alert</Text>
+            <Text style={styles.sheetSubtitle}>
+              This immediately notifies your guard and admin
+            </Text>
+            {[
+              "Fire",
+              "Medical Emergency",
+              "Lift Stuck",
+              "Security Threat",
+              "Other",
+            ].map((type) => (
+              <Pressable
+                key={type}
+                style={styles.sosOptionRow}
+                onPress={() => sendSOS(type)}
+                disabled={sosLoading}
+              >
+                <IconButton
+                  icon="alert-circle"
+                  size={20}
+                  iconColor={DANGER}
+                  style={{ margin: 0 }}
+                />
+                <Text style={styles.sosOptionText}>{type}</Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -2267,4 +2345,35 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   logoutButtonText: { color: DANGER, fontSize: 15, fontWeight: "700" },
+  sosFab: {
+    position: "absolute",
+    top: 60,
+    right: 16,
+    zIndex: 100,
+    backgroundColor: DANGER,
+    borderRadius: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 4,
+    paddingRight: 14,
+    paddingVertical: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  sosFabText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
+    marginLeft: -6,
+  },
+  sosOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    gap: 8,
+  },
+  sosOptionText: { fontSize: 15, fontWeight: "600", color: INK },
 });
