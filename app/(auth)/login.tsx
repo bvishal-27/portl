@@ -17,14 +17,13 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-// ---- Inline theme: light, minimal, premium ----
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
 const INK_FAINT = '#A6A3B3';
 const ACCENT = '#4F3FE0';
 const ACCENT_SOFT = '#EFECFD';
-const GOLD = '#C9922B';
-const PAGE_BG = '#FAFAFC';
+const LINK = '#0E8F7A';
+const PAGE_BG = '#EFEEF5';
 const CARD_BG = '#FFFFFF';
 const BORDER = '#ECEAF2';
 const INPUT_BG = '#F5F4F9';
@@ -97,20 +96,28 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -100}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.logoMark}>
             <Text style={styles.logoLetter}>P</Text>
           </View>
 
           <View style={styles.brandBlock}>
             <Text style={styles.brandName}>PORTL</Text>
-            <Text style={styles.brandTagline}>Your community, one tap away</Text>
+            <Text style={styles.brandTagline}>Everything your building needs, in one place</Text>
           </View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Welcome back</Text>
-            <Text style={styles.cardSubtitle}>Sign in to continue</Text>
+            <Text style={styles.cardSubtitle}>Log in to continue to your account</Text>
 
             <View style={[styles.inputWrap, emailFocused && styles.inputWrapFocused]}>
               <TextInput
@@ -177,13 +184,13 @@ export default function Login() {
             </Pressable>
 
             <Pressable onPress={() => router.push('/(auth)/signup')} style={styles.signupLinkWrap}>
-              <Text style={styles.signupLinkLabel}>New resident? Request access →</Text>
+              <Text style={styles.signupLinkLabel}>New here? Create an account →</Text>
             </Pressable>
           </View>
 
           <View style={styles.footerRow}>
             <View style={styles.footerDot} />
-            <Text style={styles.footerNote}>Secured access for verified residents only</Text>
+            <Text style={styles.footerNote}>Verified residents and staff only</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -194,7 +201,7 @@ export default function Login() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
 
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 72, paddingBottom: 60 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 48, paddingBottom: 48 },
 
   logoMark: {
     alignSelf: 'center',
@@ -207,7 +214,7 @@ const styles = StyleSheet.create({
 
   brandBlock: { alignItems: 'center', marginBottom: 32 },
   brandName: { fontSize: 24, fontWeight: '800', color: INK, letterSpacing: 4 },
-  brandTagline: { fontSize: 13, color: INK_MUTED, marginTop: 6 },
+  brandTagline: { fontSize: 13, color: INK_MUTED, marginTop: 6, textAlign: 'center' },
 
   card: {
     backgroundColor: CARD_BG,
@@ -247,7 +254,7 @@ const styles = StyleSheet.create({
   loginButtonLabel: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
 
   signupLinkWrap: { alignItems: 'center', marginTop: 18, paddingVertical: 4 },
-  signupLinkLabel: { color: GOLD, fontSize: 13, fontWeight: '600' },
+  signupLinkLabel: { color: LINK, fontSize: 13, fontWeight: '600' },
 
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 26, gap: 6 },
   footerDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4ADE80' },

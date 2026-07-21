@@ -9,7 +9,6 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
 
-// ---- Inline theme: light, minimal, premium (matches Login / Signup / Guard / Resident) ----
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
 const INK_FAINT = '#A6A3B3';
@@ -45,7 +44,6 @@ type Staff = { id: string; name: string; service_type: string; phone: string | n
 type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
 type MyAdminProfile = { full_name: string; phone: string | null };
 
-// Everything reachable from the "More" grid — sections that don't get a dedicated bottom-bar slot
 const MORE_TABS = [
   { key: 'notices', label: 'Notices', icon: 'bullhorn' },
   { key: 'polls', label: 'Polls', icon: 'poll' },
@@ -93,7 +91,6 @@ const [dueAmount, setDueAmount] = useState('');
 const [dueDate, setDueDate] = useState('');
 const [dueApplyAll, setDueApplyAll] = useState(false);
 
-  // ---- bottom nav / More sheet / Profile page state ----
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [myProfile, setMyProfile] = useState<MyAdminProfile | null>(null);
@@ -149,7 +146,6 @@ const fetchDues = async () => {
   const { data } = await supabase.from('dues').select('*').order('due_date', { ascending: false });
   if (data) setDues(data);
 };
-  // Pulls name/phone for the Profile page. Read-only, additive — mirrors Resident's fetchMyProfile.
   const fetchMyProfile = async () => {
     const { data } = await supabase.from('profiles').select('full_name, phone').eq('id', userId).single();
     if (data) setMyProfile({ full_name: (data as any).full_name, phone: (data as any).phone ?? null });
@@ -437,7 +433,6 @@ const deleteDue = async (id: string) => {
 
   const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
 
-  // ---- Derived, display-only values for the Home dashboard + Profile page (no new fetches) ----
   const firstName = myProfile?.full_name?.split(' ')[0] ?? 'Admin';
   const openTicketsCount = tickets.filter((t) => t.status !== 'resolved').length;
   const hour = new Date().getHours();
@@ -455,7 +450,6 @@ const deleteDue = async (id: string) => {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-      {/* ---------------- Top Header ---------------- */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.greeting}>{greeting},</Text>
@@ -470,7 +464,6 @@ const deleteDue = async (id: string) => {
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {tab === 'home' && (
           <>
-            {/* Quick stats */}
             <View style={styles.statsRow}>
               <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
                 <Text style={styles.statNum}>{todayCount}</Text>
@@ -486,7 +479,6 @@ const deleteDue = async (id: string) => {
               </Pressable>
             </View>
 
-            {/* Quick actions */}
             <Text style={styles.homeSectionLabel}>Quick Actions</Text>
             <View style={styles.quickActionsRow}>
               <Pressable style={styles.quickActionTile} onPress={() => goToTab('visitors')}>
@@ -507,7 +499,6 @@ const deleteDue = async (id: string) => {
               </Pressable>
             </View>
 
-            {/* Dues snapshot — pending vs collected, with a flat count for context */}
             {(pendingDues.length > 0 || paidDues.length > 0) && (
               <Pressable style={[styles.card, styles.duesSnapshotCard]} onPress={() => goToTab('dues')}>
                 <View style={styles.duesSnapshotRow}>
@@ -527,7 +518,6 @@ const deleteDue = async (id: string) => {
               </Pressable>
             )}
 
-            {/* Pending resident approvals preview */}
             {pendingResidents.length > 0 && (
               <>
                 <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
@@ -561,7 +551,6 @@ const deleteDue = async (id: string) => {
               </>
             )}
 
-            {/* Latest notice preview */}
             <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
               <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
               <Text style={styles.sectionTitle}>Latest Notice</Text>
@@ -846,8 +835,6 @@ const deleteDue = async (id: string) => {
         )}
 
         {tab === 'society' && (
-
-        
           <View>
             <View style={styles.filterRow}>
               {['towers', 'flats', 'residents', 'staff'].map((s) => (
@@ -1018,12 +1005,10 @@ const deleteDue = async (id: string) => {
           </View>
         )}
 
-        {/* extra bottom padding so content never sits under the fixed bottom nav */}
         <View style={{ height: 90 }} />
       </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ---------------- Bottom Nav Bar ---------------- */}
       <View style={styles.bottomNav}>
         <Pressable style={styles.navItem} onPress={() => setTab('home')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'home' && styles.navIconWrapActive]}>
@@ -1072,7 +1057,6 @@ const deleteDue = async (id: string) => {
         </Pressable>
       </View>
 
-      {/* ---------------- More — grid of app sections ---------------- */}
       <Modal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setMoreOpen(false)}>
           <Pressable style={styles.sheetCard} onPress={() => {}}>
@@ -1097,7 +1081,6 @@ const deleteDue = async (id: string) => {
         </Pressable>
       </Modal>
 
-      {/* ---------------- Profile — full page, about you only ---------------- */}
       <Modal visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
         <View style={styles.profileScreen}>
           <View style={styles.profileTopBar}>
@@ -1107,7 +1090,6 @@ const deleteDue = async (id: string) => {
           </View>
 
           <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-            {/* Identity card */}
             <View style={styles.profileIdCard}>
               <View style={styles.profileBigAvatar}>
                 <Text style={styles.profileBigAvatarInitial}>{myProfile?.full_name?.[0]?.toUpperCase() ?? 'A'}</Text>
@@ -1125,7 +1107,6 @@ const deleteDue = async (id: string) => {
               ) : null}
             </View>
 
-            {/* Stats — read-only summary of the society, not navigation */}
             <Text style={styles.profileSectionLabel}>Society Summary</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statTile}>
@@ -1142,7 +1123,6 @@ const deleteDue = async (id: string) => {
               </View>
             </View>
 
-            {/* Log out */}
             <Pressable style={styles.logoutButton} onPress={() => { setProfileOpen(false); handleLogout(); }}>
               <IconButton icon="logout" size={20} iconColor={DANGER} style={{ margin: 0 }} />
               <Text style={styles.logoutButtonText}>Log Out</Text>
@@ -1157,7 +1137,6 @@ const deleteDue = async (id: string) => {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
 
-  // ---- Header ----
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     paddingTop: 56, paddingHorizontal: 20, paddingBottom: 18,
@@ -1173,7 +1152,6 @@ const styles = StyleSheet.create({
 
   container: { padding: 20, paddingBottom: 12 },
 
-  // ---- Home dashboard ----
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
 
   statCard: {
@@ -1245,7 +1223,6 @@ const styles = StyleSheet.create({
   duesSnapshotSub: { fontSize: 11, color: INK_FAINT, marginTop: 3 },
   duesSnapshotDivider: { width: 1, height: 40, backgroundColor: BORDER, marginHorizontal: 14 },
 
-  
   bottomNav: {
     position: 'absolute',
     left: 0, right: 0, bottom: 0,
@@ -1272,7 +1249,6 @@ const styles = StyleSheet.create({
   navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   navAvatarInitial: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  // ---- More — grid sheet ----
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(21,19,31,0.35)', justifyContent: 'flex-end' },
   sheetCard: {
     backgroundColor: CARD_BG,
@@ -1296,7 +1272,6 @@ const styles = StyleSheet.create({
   },
   moreGridBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
 
-  // ---- Full Profile page (about you only) ----
   profileScreen: { flex: 1, backgroundColor: PAGE_BG },
   profileTopBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

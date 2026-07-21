@@ -13,14 +13,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { router } from 'expo-router';
 
-// ---- Inline theme: light, minimal, premium (matches Login) ----
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
 const INK_FAINT = '#A6A3B3';
 const ACCENT = '#4F3FE0';
 const ACCENT_SOFT = '#EFECFD';
-const GOLD = '#C9922B';
-const PAGE_BG = '#FAFAFC';
+const LINK = '#0E8F7A';
+const PAGE_BG = '#EFEEF5';
 const CARD_BG = '#FFFFFF';
 const BORDER = '#ECEAF2';
 const INPUT_BG = '#F5F4F9';
@@ -120,20 +119,28 @@ export default function Signup() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -100}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.logoMark}>
             <Text style={styles.logoLetter}>P</Text>
           </View>
 
           <View style={styles.brandBlock}>
             <Text style={styles.brandName}>PORTL</Text>
-            <Text style={styles.brandTagline}>Request access to your community</Text>
+            <Text style={styles.brandTagline}>Join your building's community</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Request Access</Text>
-            <Text style={styles.cardSubtitle}>Admin approval is required before you can log in</Text>
+            <Text style={styles.cardTitle}>Create your account</Text>
+            <Text style={styles.cardSubtitle}>An admin will review and approve your request before you can log in</Text>
 
             <View style={[styles.inputWrap, nameFocused && styles.inputWrapFocused]}>
               <TextInput
@@ -226,7 +233,7 @@ export default function Signup() {
 
             <Text style={styles.sectionLabel}>Select Tower</Text>
             <View style={styles.chipRow}>
-              {towers.length === 0 && <Text style={styles.empty}>No towers set up yet — contact admin</Text>}
+              {towers.length === 0 && <Text style={styles.empty}>No towers set up yet — contact your admin</Text>}
               {towers.map((t) => {
                 const selected = selectedTower === t.id;
                 return (
@@ -236,7 +243,7 @@ export default function Signup() {
                     onPress={() => { setSelectedTower(t.id); setSelectedFlat(null); }}
                     style={[styles.chip, selected && styles.chipSelected]}
                     textStyle={[styles.chipText, selected && styles.chipTextSelected]}
-                    selectedColor={GOLD}
+                    selectedColor={LINK}
                   >
                     {t.name}
                   </Chip>
@@ -249,7 +256,7 @@ export default function Signup() {
                 <Text style={styles.sectionLabel}>Select Flat</Text>
                 <View style={styles.chipRow}>
                   {flatsForTower.length === 0 && (
-                    <Text style={styles.empty}>No flats in this tower yet — contact admin</Text>
+                    <Text style={styles.empty}>No flats in this tower yet — contact your admin</Text>
                   )}
                   {flatsForTower.map((f) => {
                     const selected = selectedFlat === f.id;
@@ -260,7 +267,7 @@ export default function Signup() {
                         onPress={() => setSelectedFlat(f.id)}
                         style={[styles.chip, selected && styles.chipSelected]}
                         textStyle={[styles.chipText, selected && styles.chipTextSelected]}
-                        selectedColor={GOLD}
+                        selectedColor={LINK}
                       >
                         {f.flat_number}
                       </Chip>
@@ -286,7 +293,7 @@ export default function Signup() {
           </View>
 
           <View style={styles.footerRow}>
-            <Text style={styles.footerNote}>Your request will be reviewed by an admin</Text>
+            <Text style={styles.footerNote}>Your request will be reviewed by an admin shortly</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -297,7 +304,7 @@ export default function Signup() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
 
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 64, paddingBottom: 60 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 40, paddingBottom: 48 },
 
   logoMark: {
     alignSelf: 'center',
@@ -365,7 +372,7 @@ const styles = StyleSheet.create({
   loginButtonLabel: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
 
   signupLinkWrap: { alignItems: 'center', marginTop: 16, paddingVertical: 4 },
-  signupLinkLabel: { color: GOLD, fontSize: 13, fontWeight: '600' },
+  signupLinkLabel: { color: LINK, fontSize: 13, fontWeight: '600' },
 
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 26 },
   footerNote: { color: INK_FAINT, fontSize: 12 },
