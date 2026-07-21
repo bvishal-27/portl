@@ -16,7 +16,7 @@ const INK_FAINT = '#A6A3B3';
 const ACCENT = '#4F3FE0';
 const ACCENT_SOFT = '#EFECFD';
 const GOLD = '#C9922B';
-const PAGE_BG = '#FAFAFC';
+const PAGE_BG = '#EFEEF5';
 const CARD_BG = '#FFFFFF';
 const BORDER = '#ECEAF2';
 const INPUT_BG = '#F5F4F9';
@@ -1035,7 +1035,9 @@ const deleteDue = async (id: string) => {
         <Pressable style={styles.navItem} onPress={() => setTab('visitors')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'visitors' && styles.navIconWrapActive]}>
             <IconButton icon="account-group-outline" size={22} iconColor={tab === 'visitors' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
-            {pendingCount > 0 && tab !== 'visitors' && <View style={styles.navDot} />}
+            {pendingCount > 0 && tab !== 'visitors' && (
+  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingCount > 9 ? '9+' : pendingCount}</Text></View>
+)}
           </View>
           <Text style={[styles.navLabel, tab === 'visitors' && styles.navLabelActive]}>Visitors</Text>
         </Pressable>
@@ -1043,7 +1045,9 @@ const deleteDue = async (id: string) => {
         <Pressable style={styles.navItem} onPress={() => setTab('tickets')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'tickets' && styles.navIconWrapActive]}>
             <IconButton icon="headset" size={22} iconColor={tab === 'tickets' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
-            {openTicketsCount > 0 && tab !== 'tickets' && <View style={styles.navDot} />}
+           {openTicketsCount > 0 && tab !== 'tickets' && (
+  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{openTicketsCount > 9 ? '9+' : openTicketsCount}</Text></View>
+)}
           </View>
           <Text style={[styles.navLabel, tab === 'tickets' && styles.navLabelActive]}>Tickets</Text>
         </Pressable>
@@ -1051,7 +1055,9 @@ const deleteDue = async (id: string) => {
         <Pressable style={styles.navItem} onPress={() => setMoreOpen(true)} hitSlop={8}>
           <View style={[styles.navIconWrap, isMoreActiveTab && styles.navIconWrapActive]}>
             <IconButton icon="dots-grid" size={22} iconColor={isMoreActiveTab ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
-            {pendingResidents.length > 0 && !isMoreActiveTab && <View style={styles.navDot} />}
+           {pendingResidents.length > 0 && !isMoreActiveTab && (
+  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingResidents.length > 9 ? '9+' : pendingResidents.length}</Text></View>
+)}
           </View>
           <Text style={[styles.navLabel, isMoreActiveTab && styles.navLabelActive]}>More</Text>
         </Pressable>
@@ -1169,7 +1175,11 @@ const styles = StyleSheet.create({
 
   // ---- Home dashboard ----
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
-  statCard: { flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14 },
+
+  statCard: {
+  flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14,
+  shadowColor: '#151329', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
+},
   statNum: { fontSize: 20, fontWeight: '800', color: INK },
   statLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
   homeSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, letterSpacing: 0.3, textTransform: 'uppercase' },
@@ -1198,7 +1208,11 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: ACCENT_SOFT, borderColor: ACCENT },
   chipText: { color: INK_MUTED },
   chipTextSelected: { color: INK, fontWeight: '600' },
-  card: { borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden' },
+
+  card: {
+  borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden',
+  shadowColor: '#151329', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
+},
   cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 4 },
   pendingCard: { borderWidth: 1.5, borderColor: WARN, marginBottom: 12 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
@@ -1251,6 +1265,8 @@ const styles = StyleSheet.create({
   navIconWrap: { width: 44, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
   navIconWrapActive: { backgroundColor: ACCENT_SOFT },
   navDot: { position: 'absolute', top: 2, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: DANGER, borderWidth: 1.5, borderColor: CARD_BG },
+  navBadge: { position: 'absolute', top: -2, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: DANGER, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: CARD_BG },
+  navBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
   navLabel: { fontSize: 11, color: INK_FAINT, fontWeight: '600', marginTop: 2 },
   navLabelActive: { color: ACCENT },
   navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
