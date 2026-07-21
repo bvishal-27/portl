@@ -61,6 +61,21 @@ type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 type MyGuardProfile = { full_name: string; phone: string | null };
 
+type SOSAlert = {
+  id: string;
+  emergency_type: string;
+  status: string;
+  created_at: string;
+  profiles: {
+    full_name: string;
+    phone: string | null;
+  } | null;
+  flats: {
+    flat_number: string;
+    towers: { name: string } | null;
+  } | null;
+};
+
 const statusColor = (status: string) => {
   if (status === "approved") return SUCCESS;
   if (status === "denied") return DANGER;
@@ -219,6 +234,9 @@ export default function GuardHome() {
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
 
+  const [sosAlerts, setSosAlerts] = useState<SOSAlert[]>([]);
+  const [resolvingSosId, setResolvingSosId] = useState<string | null>(null);
+
   const [residents, setResidents] = useState<
     { full_name: string; flat_id: string | null }[]
   >([]);
@@ -236,6 +254,49 @@ export default function GuardHome() {
     await supabase.auth.signOut();
     clearSession();
     router.replace("/(auth)/login");
+  };
+
+  const fetchActiveSosAlerts = async () => {
+    const { data, error } = await supabase
+      .from("sos_alerts")
+      .select(
+        `
+        id,
+        emergency_type,
+        status,
+        created_at,
+        profiles:resident_id ( full_name, phone ),
+        flats:flat_id ( flat_number, towers ( name ) )
+      `
+      )
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      setSosAlerts(data as any);
+    }
+  };
+
+  const resolveSOS = async (sosId: string) => {
+    setResolvingSosId(sosId);
+    try {
+      const { error } = await supabase
+        .from("sos_alerts")
+        .update({
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("id", sosId);
+
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+      Alert.alert("Resolved", "The SOS alert has been marked as resolved.");
+      fetchActiveSosAlerts();
+    } finally {
+      setResolvingSosId(null);
+    }
   };
 
   const fetchRequests = async () => {
@@ -290,6 +351,7 @@ export default function GuardHome() {
     fetchFlats();
     fetchMyProfile();
     fetchResidents();
+    fetchActiveSosAlerts();
 
     const channel = supabase
       .channel("visitor_requests_guard")
@@ -300,8 +362,26 @@ export default function GuardHome() {
       )
       .subscribe();
 
+    const sosChannel = supabase
+      .channel("guard_sos_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "sos_alerts" },
+        (payload) => {
+          fetchActiveSosAlerts();
+          if (payload.eventType === "INSERT") {
+            Alert.alert(
+              "🚨 EMERGENCY SOS ALERT",
+              `New SOS trigger received! Check active alerts immediately.`,
+            );
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(sosChannel);
     };
   }, []);
 
@@ -557,6 +637,91 @@ export default function GuardHome() {
         >
           {tab === "home" && (
             <>
+              {sosAlerts.length > 0 && (
+                <View style={{ marginBottom: 20 }}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Avatar.Icon
+                      size={30}
+                      icon="alert-octagon"
+                      style={{ backgroundColor: DANGER_BG }}
+                      color={DANGER}
+                    />
+                    <Text style={[styles.sectionTitle, { color: DANGER }]}>
+                      Active Emergency SOS ({sosAlerts.length})
+                    </Text>
+                  </View>
+                  {sosAlerts.map((sos) => (
+                    <View
+                      key={sos.id}
+                      style={[
+                        styles.card,
+                        {
+                          borderColor: DANGER,
+                          borderWidth: 2,
+                          marginBottom: 12,
+                        },
+                      ]}
+                    >
+                      <View style={{ padding: 16 }}>
+                        <View style={styles.row}>
+                          <Chip
+                            compact
+                            style={{ backgroundColor: DANGER_BG }}
+                            textStyle={{
+                              color: DANGER,
+                              fontWeight: "700",
+                              fontSize: 12,
+                            }}
+                          >
+                            🚨 {sos.emergency_type}
+                          </Chip>
+                          <Text style={styles.metaFaint}>
+                            {new Date(sos.created_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </Text>
+                        </View>
+
+                        <Text
+                          style={[
+                            styles.visitorName,
+                            { marginTop: 8, fontSize: 18 },
+                          ]}
+                        >
+                          {sos.flats?.towers?.name
+                            ? `${sos.flats.towers.name} · `
+                            : ""}
+                          Flat {sos.flats?.flat_number ?? "Unknown"}
+                        </Text>
+                        <Text style={styles.meta}>
+                          Resident: {sos.profiles?.full_name ?? "Unknown"}
+                        </Text>
+                        {sos.profiles?.phone && (
+                          <Text style={styles.meta}>
+                            📞 {sos.profiles.phone}
+                          </Text>
+                        )}
+                      </View>
+                      <Divider style={{ backgroundColor: BORDER }} />
+                      <View style={styles.cardActions}>
+                        <Button
+                          mode="contained"
+                          buttonColor={DANGER}
+                          textColor="#fff"
+                          loading={resolvingSosId === sos.id}
+                          disabled={resolvingSosId === sos.id}
+                          onPress={() => resolveSOS(sos.id)}
+                          style={{ borderRadius: 10 }}
+                        >
+                          Mark as Resolved
+                        </Button>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               <View style={styles.statsRow}>
                 <Pressable
                   style={styles.statCard}

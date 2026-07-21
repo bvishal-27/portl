@@ -44,6 +44,21 @@ type Staff = { id: string; name: string; service_type: string; phone: string | n
 type Due = { id: string; flat_id: string; description: string; amount: number; due_date: string; status: string; paid_at: string | null };
 type MyAdminProfile = { full_name: string; phone: string | null };
 
+type SOSAlert = {
+  id: string;
+  emergency_type: string;
+  status: string;
+  created_at: string;
+  profiles: {
+    full_name: string;
+    phone: string | null;
+  } | null;
+  flats: {
+    flat_number: string;
+    towers: { name: string } | null;
+  } | null;
+};
+
 const MORE_TABS = [
   { key: 'notices', label: 'Notices', icon: 'bullhorn' },
   { key: 'polls', label: 'Polls', icon: 'poll' },
@@ -65,9 +80,12 @@ export default function AdminHome() {
   const [residents, setResidents] = useState<Profile[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [allNotices, setAllNotices] = useState<{ id: string; title: string; body: string; created_at: string }[]>([]);
-const [allPolls, setAllPolls] = useState<{ id: string; question: string; created_at: string }[]>([]);
+  const [allPolls, setAllPolls] = useState<{ id: string; question: string; created_at: string }[]>([]);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
+
+  const [sosAlerts, setSosAlerts] = useState<SOSAlert[]>([]);
+  const [resolvingSosId, setResolvingSosId] = useState<string | null>(null);
 
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
@@ -85,11 +103,11 @@ const [allPolls, setAllPolls] = useState<{ id: string; question: string; created
   const [staffPhotoUri, setStaffPhotoUri] = useState<string | null>(null);
   const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [dues, setDues] = useState<Due[]>([]);
-const [dueFlatId, setDueFlatId] = useState('');
-const [dueDescription, setDueDescription] = useState('');
-const [dueAmount, setDueAmount] = useState('');
-const [dueDate, setDueDate] = useState('');
-const [dueApplyAll, setDueApplyAll] = useState(false);
+  const [dueFlatId, setDueFlatId] = useState('');
+  const [dueDescription, setDueDescription] = useState('');
+  const [dueAmount, setDueAmount] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [dueApplyAll, setDueApplyAll] = useState(false);
 
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -99,6 +117,45 @@ const [dueApplyAll, setDueApplyAll] = useState(false);
     await supabase.auth.signOut();
     clearSession();
     router.replace('/(auth)/login');
+  };
+
+  const fetchActiveSosAlerts = async () => {
+    const { data, error } = await supabase
+      .from('sos_alerts')
+      .select(`
+        id,
+        emergency_type,
+        status,
+        created_at,
+        profiles:resident_id ( full_name, phone ),
+        flats:flat_id ( flat_number, towers ( name ) )
+      `)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) setSosAlerts(data as any);
+  };
+
+  const resolveSOS = async (sosId: string) => {
+    setResolvingSosId(sosId);
+    try {
+      const { error } = await supabase
+        .from('sos_alerts')
+        .update({
+          status: 'resolved',
+          resolved_at: new Date().toISOString(),
+        })
+        .eq('id', sosId);
+
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+      Alert.alert('Resolved', 'The SOS alert has been marked as resolved.');
+      fetchActiveSosAlerts();
+    } finally {
+      setResolvingSosId(null);
+    }
   };
 
   const fetchRequests = async () => {
@@ -132,30 +189,27 @@ const [dueApplyAll, setDueApplyAll] = useState(false);
   const fetchStaff = async () => {
     const { data } = await supabase.from('staff_directory').select('*').order('name');
     if (data) setStaff(data);
-
   };
   const fetchAllNotices = async () => {
-  const { data } = await supabase.from('notices').select('*').order('created_at', { ascending: false });
-  if (data) setAllNotices(data);
-};
-const fetchAllPolls = async () => {
-  const { data } = await supabase.from('polls').select('id, question, created_at').order('created_at', { ascending: false });
-  if (data) setAllPolls(data);
-};
-const fetchDues = async () => {
-  const { data } = await supabase.from('dues').select('*').order('due_date', { ascending: false });
-  if (data) setDues(data);
-};
+    const { data } = await supabase.from('notices').select('*').order('created_at', { ascending: false });
+    if (data) setAllNotices(data);
+  };
+  const fetchAllPolls = async () => {
+    const { data } = await supabase.from('polls').select('id, question, created_at').order('created_at', { ascending: false });
+    if (data) setAllPolls(data);
+  };
+  const fetchDues = async () => {
+    const { data } = await supabase.from('dues').select('*').order('due_date', { ascending: false });
+    if (data) setDues(data);
+  };
   const fetchMyProfile = async () => {
     const { data } = await supabase.from('profiles').select('full_name, phone').eq('id', userId).single();
     if (data) setMyProfile({ full_name: (data as any).full_name, phone: (data as any).phone ?? null });
   };
 
   useEffect(() => {
-    fetchRequests(); fetchTickets(); fetchAmenities();  fetchBookings();
-
-fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues(); fetchMyProfile();
-
+    fetchRequests(); fetchTickets(); fetchAmenities(); fetchBookings();
+    fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); fetchAllPolls(); fetchDues(); fetchMyProfile(); fetchActiveSosAlerts();
 
     const channels = [
       supabase.channel('visitor_requests_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_requests' }, fetchRequests).subscribe(),
@@ -166,11 +220,16 @@ fetchTowers(); fetchFlats(); fetchResidents(); fetchStaff(); fetchAllNotices(); 
       supabase.channel('flats_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'flats' }, fetchFlats).subscribe(),
       supabase.channel('staff_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'staff_directory' }, fetchStaff).subscribe(),
       supabase.channel('profiles_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, fetchResidents).subscribe(),
-    supabase.channel('notices_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchAllNotices).subscribe(),
-supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, fetchAllPolls).subscribe(),
-    supabase.channel('dues_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'dues' }, fetchDues).subscribe(),
-    ];   
-
+      supabase.channel('notices_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchAllNotices).subscribe(),
+      supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, fetchAllPolls).subscribe(),
+      supabase.channel('dues_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'dues' }, fetchDues).subscribe(),
+      supabase.channel('admin_sos_realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'sos_alerts' }, (payload) => {
+        fetchActiveSosAlerts();
+        if (payload.eventType === 'INSERT') {
+          Alert.alert('🚨 EMERGENCY SOS ALERT', 'New SOS trigger received! Check active alerts immediately.');
+        }
+      }).subscribe(),
+    ];
 
     return () => channels.forEach((c) => supabase.removeChannel(c));
   }, []);
@@ -259,59 +318,59 @@ supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema
     await supabase.from('staff_directory').delete().eq('id', id);
   };
   const deleteTower = async (id: string) => {
-  Alert.alert('Delete Tower', 'This will also delete all flats in this tower. Continue?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('towers').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-      else fetchTowers();
-    }},
-  ]);
-};
+    Alert.alert('Delete Tower', 'This will also delete all flats in this tower. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('towers').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+        else fetchTowers();
+      }},
+    ]);
+  };
 
-const deleteFlat = async (id: string) => {
-  Alert.alert('Delete Flat', 'This will remove the flat. Continue?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('flats').delete().eq('id', id);
-      if (error) {
-        if (error.code === '23503') {
-          Alert.alert('Cannot delete', 'This flat has visitor records, residents, or dues linked to it. Remove those first, or reassign the resident to a different flat.');
-        } else {
-          Alert.alert('Error', error.message);
+  const deleteFlat = async (id: string) => {
+    Alert.alert('Delete Flat', 'This will remove the flat. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('flats').delete().eq('id', id);
+        if (error) {
+          if (error.code === '23503') {
+            Alert.alert('Cannot delete', 'This flat has visitor records, residents, or dues linked to it. Remove those first, or reassign the resident to a different flat.');
+          } else {
+            Alert.alert('Error', error.message);
+          }
+          return;
         }
-        return;
-      }
-      fetchFlats();
-    }},
-  ]);
-};
+        fetchFlats();
+      }},
+    ]);
+  };
 
-const deleteAmenity = async (id: string) => {
-  Alert.alert('Delete Amenity', 'This will also cancel any bookings for it. Continue?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('amenities').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-      else fetchAmenities();
-    }},
-  ]);
-};
+  const deleteAmenity = async (id: string) => {
+    Alert.alert('Delete Amenity', 'This will also cancel any bookings for it. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('amenities').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+        else fetchAmenities();
+      }},
+    ]);
+  };
 
-const deleteNotice = async (id: string) => {
-  const { error } = await supabase.from('notices').delete().eq('id', id);
-  if (error) Alert.alert('Error', error.message);
-};
+  const deleteNotice = async (id: string) => {
+    const { error } = await supabase.from('notices').delete().eq('id', id);
+    if (error) Alert.alert('Error', error.message);
+  };
 
-const deletePoll = async (id: string) => {
-  Alert.alert('Delete Poll', 'This will remove the poll and its votes. Continue?', [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('polls').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-    }},
-  ]);
-};
+  const deletePoll = async (id: string) => {
+    Alert.alert('Delete Poll', 'This will remove the poll and its votes. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('polls').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+      }},
+    ]);
+  };
 
   const approveResident = async (id: string) => {
     const { error } = await supabase.from('profiles').update({ approved: true }).eq('id', id);
@@ -333,81 +392,81 @@ const deletePoll = async (id: string) => {
     ]);
   };
   const deleteResident = async (id: string, name: string) => {
-  Alert.alert('Remove Resident', `This will permanently remove ${name}'s access. Continue?`, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Remove', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('profiles').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-      else fetchResidents();
-    }},
-  ]);
-};
+    Alert.alert('Remove Resident', `This will permanently remove ${name}'s access. Continue?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('profiles').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+        else fetchResidents();
+      }},
+    ]);
+  };
 
-const deleteVisitorRequest = async (id: string, name: string) => {
-  Alert.alert('Delete Visitor Record', `Remove this visitor log entry for ${name}?`, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('visitor_requests').delete().eq('id', id);
-      if (error) Alert.alert('Error', error.message);
-    }},
-  ]);
-};
+  const deleteVisitorRequest = async (id: string, name: string) => {
+    Alert.alert('Delete Visitor Record', `Remove this visitor log entry for ${name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('visitor_requests').delete().eq('id', id);
+        if (error) Alert.alert('Error', error.message);
+      }},
+    ]);
+  };
 
-const overrideVisitorStatus = async (id: string, status: string) => {
-  const { error } = await supabase.from('visitor_requests').update({ status }).eq('id', id);
-  if (error) Alert.alert('Error', error.message);
-};
+  const overrideVisitorStatus = async (id: string, status: string) => {
+    const { error } = await supabase.from('visitor_requests').update({ status }).eq('id', id);
+    if (error) Alert.alert('Error', error.message);
+  };
 
-const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
-  const { error } = await supabase.from('profiles').update({ flat_id: newFlatId }).eq('id', residentId);
-  if (error) Alert.alert('Error', error.message);
-  else {
-    Alert.alert('Updated', 'Resident reassigned to new flat');
-    fetchResidents();
-  }
-};
-const handleCreateDue = async () => {
-  if (!dueDescription || !dueAmount || !dueDate) {
-    Alert.alert('Missing info', 'Fill description, amount and due date');
-    return;
-  }
-  if (!dueApplyAll && !dueFlatId) {
-    Alert.alert('Missing info', 'Select a flat, or toggle "Apply to all flats"');
-    return;
-  }
-  const amountNum = parseFloat(dueAmount);
-  if (isNaN(amountNum) || amountNum <= 0) {
-    Alert.alert('Invalid amount', 'Enter a valid positive number');
-    return;
-  }
+  const reassignResidentFlat = async (residentId: string, newFlatId: string) => {
+    const { error } = await supabase.from('profiles').update({ flat_id: newFlatId }).eq('id', residentId);
+    if (error) Alert.alert('Error', error.message);
+    else {
+      Alert.alert('Updated', 'Resident reassigned to new flat');
+      fetchResidents();
+    }
+  };
+  const handleCreateDue = async () => {
+    if (!dueDescription || !dueAmount || !dueDate) {
+      Alert.alert('Missing info', 'Fill description, amount and due date');
+      return;
+    }
+    if (!dueApplyAll && !dueFlatId) {
+      Alert.alert('Missing info', 'Select a flat, or toggle "Apply to all flats"');
+      return;
+    }
+    const amountNum = parseFloat(dueAmount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert('Invalid amount', 'Enter a valid positive number');
+      return;
+    }
 
-  const targetFlats = dueApplyAll ? flats.map((f) => f.id) : [dueFlatId];
+    const targetFlats = dueApplyAll ? flats.map((f) => f.id) : [dueFlatId];
 
-  const rows = targetFlats.map((flat_id) => ({
-    flat_id,
-    description: dueDescription,
-    amount: amountNum,
-    due_date: dueDate,
-    status: 'pending',
-  }));
+    const rows = targetFlats.map((flat_id) => ({
+      flat_id,
+      description: dueDescription,
+      amount: amountNum,
+      due_date: dueDate,
+      status: 'pending',
+    }));
 
-  const { error } = await supabase.from('dues').insert(rows);
-  if (error) {
-    Alert.alert('Error', error.message);
-    return;
-  }
-  Alert.alert('Due added', `Applied to ${targetFlats.length} flat(s)`);
-  setDueDescription('');
-  setDueAmount('');
-  setDueDate('');
-  setDueFlatId('');
-  setDueApplyAll(false);
-};
+    const { error } = await supabase.from('dues').insert(rows);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    Alert.alert('Due added', `Applied to ${targetFlats.length} flat(s)`);
+    setDueDescription('');
+    setDueAmount('');
+    setDueDate('');
+    setDueFlatId('');
+    setDueApplyAll(false);
+  };
 
-const deleteDue = async (id: string) => {
-  const { error } = await supabase.from('dues').delete().eq('id', id);
-  if (error) Alert.alert('Error', error.message);
-};
+  const deleteDue = async (id: string) => {
+    const { error } = await supabase.from('dues').delete().eq('id', id);
+    if (error) Alert.alert('Error', error.message);
+  };
 
   const today = new Date().toDateString();
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
@@ -464,6 +523,49 @@ const deleteDue = async (id: string) => {
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {tab === 'home' && (
           <>
+            {sosAlerts.length > 0 && (
+              <View style={{ marginBottom: 20 }}>
+                <View style={styles.sectionHeaderRow}>
+                  <Avatar.Icon size={30} icon="alert-octagon" style={{ backgroundColor: DANGER_BG }} color={DANGER} />
+                  <Text style={[styles.sectionTitle, { color: DANGER }]}>Active Emergency SOS ({sosAlerts.length})</Text>
+                </View>
+                {sosAlerts.map((sos) => (
+                  <View key={sos.id} style={[styles.card, { borderColor: DANGER, borderWidth: 2, marginBottom: 12 }]}>
+                    <View style={{ padding: 16 }}>
+                      <View style={styles.row}>
+                        <Chip compact style={{ backgroundColor: DANGER_BG }} textStyle={{ color: DANGER, fontWeight: '700', fontSize: 12 }}>
+                          🚨 {sos.emergency_type}
+                        </Chip>
+                        <Text style={styles.metaFaint}>
+                          {new Date(sos.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+
+                      <Text style={[styles.visitorName, { marginTop: 8, fontSize: 18 }]}>
+                        {sos.flats?.towers?.name ? `${sos.flats.towers.name} · ` : ''}Flat {sos.flats?.flat_number ?? 'Unknown'}
+                      </Text>
+                      <Text style={styles.meta}>Resident: {sos.profiles?.full_name ?? 'Unknown'}</Text>
+                      {sos.profiles?.phone && <Text style={styles.meta}>📞 {sos.profiles.phone}</Text>}
+                    </View>
+                    <Divider style={{ backgroundColor: BORDER }} />
+                    <View style={styles.cardActions}>
+                      <Button
+                        mode="contained"
+                        buttonColor={DANGER}
+                        textColor="#fff"
+                        loading={resolvingSosId === sos.id}
+                        disabled={resolvingSosId === sos.id}
+                        onPress={() => resolveSOS(sos.id)}
+                        style={{ borderRadius: 10 }}
+                      >
+                        Mark as Resolved
+                      </Button>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
             <View style={styles.statsRow}>
               <Pressable style={styles.statCard} onPress={() => goToTab('visitors')}>
                 <Text style={styles.statNum}>{todayCount}</Text>
@@ -593,99 +695,99 @@ const deleteDue = async (id: string) => {
                 <Text style={styles.empty}>No visitor records</Text>
               </View>
             )}
-           <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
-  <View style={styles.card}>
-    <View style={{ padding: 16 }}>
-      <View style={styles.rowWithImage}>
-        {item.visitors?.photo_url ? (
-          <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
-        ) : (
-          <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-        )}
-        <View style={{ flex: 1 }}>
-          <View style={styles.row}>
-            <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
-            <Chip compact textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: statusBg(item.status) }}>
-              {item.pre_approved ? 'pre-approved' : item.status}
-            </Chip>
-          </View>
-          <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
-          <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
-        </View>
-      </View>
-    </View>
-    <Divider style={{ backgroundColor: BORDER }} />
-    <View style={[styles.cardActions, { flexWrap: 'wrap' }]}>
-  {item.status !== 'approved' && (
-    <IconButton icon="check-circle" iconColor={SUCCESS} size={20} onPress={() => overrideVisitorStatus(item.id, 'approved')} />
-  )}
-  {item.status !== 'denied' && (
-    <IconButton icon="close-circle" iconColor={WARN} size={20} onPress={() => overrideVisitorStatus(item.id, 'denied')} />
-  )}
-  <IconButton icon="delete" iconColor={DANGER} size={20} onPress={() => deleteVisitorRequest(item.id, item.visitors?.name ?? 'visitor')} />
-</View>
-  </View>
-)} />
+            <FlatList data={filtered} keyExtractor={(i) => i.id} scrollEnabled={false} ItemSeparatorComponent={() => <View style={{ height: 12 }} />} renderItem={({ item }) => (
+              <View style={styles.card}>
+                <View style={{ padding: 16 }}>
+                  <View style={styles.rowWithImage}>
+                    {item.visitors?.photo_url ? (
+                      <Image source={{ uri: item.visitors.photo_url }} style={styles.thumb} />
+                    ) : (
+                      <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{item.visitors?.name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.row}>
+                        <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
+                        <Chip compact textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: statusBg(item.status) }}>
+                          {item.pre_approved ? 'pre-approved' : item.status}
+                        </Chip>
+                      </View>
+                      <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
+                      <Text style={styles.metaFaint}>{new Date(item.created_at).toLocaleString()}</Text>
+                    </View>
+                  </View>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={[styles.cardActions, { flexWrap: 'wrap' }]}>
+                  {item.status !== 'approved' && (
+                    <IconButton icon="check-circle" iconColor={SUCCESS} size={20} onPress={() => overrideVisitorStatus(item.id, 'approved')} />
+                  )}
+                  {item.status !== 'denied' && (
+                    <IconButton icon="close-circle" iconColor={WARN} size={20} onPress={() => overrideVisitorStatus(item.id, 'denied')} />
+                  )}
+                  <IconButton icon="delete" iconColor={DANGER} size={20} onPress={() => deleteVisitorRequest(item.id, item.visitors?.name ?? 'visitor')} />
+                </View>
+              </View>
+            )} />
           </>
         )}
 
         {tab === 'notices' && (
-  <View>
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeaderRow}>
-        <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
-        <Text style={styles.sectionTitle}>Post a Notice</Text>
-      </View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
-      <Button mode="contained" onPress={handleCreateNotice} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
-    </View>
-    <View style={styles.sectionHeaderRow}>
-      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
-      <Text style={styles.sectionTitle}>Posted Notices ({allNotices.length})</Text>
-    </View>
-    {allNotices.map((n) => (
-      <View key={n.id} style={[styles.card, { marginBottom: 12 }]}>
-        <View style={{ padding: 16 }}>
-          <Text style={styles.visitorName}>{n.title}</Text>
-          <Text style={styles.meta}>{n.body}</Text>
-          <Text style={styles.metaFaint}>{new Date(n.created_at).toLocaleString()}</Text>
-        </View>
-        <Divider style={{ backgroundColor: BORDER }} />
-        <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteNotice(n.id)}>Delete</Button></View>
-      </View>
-    ))}
-  </View>
-)}
+          <View>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="bullhorn" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Post a Notice</Text>
+              </View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Title" value={noticeTitle} onChangeText={setNoticeTitle} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Body" value={noticeBody} onChangeText={setNoticeBody} multiline numberOfLines={3} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <Button mode="contained" onPress={handleCreateNotice} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Post Notice</Button>
+            </View>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Posted Notices ({allNotices.length})</Text>
+            </View>
+            {allNotices.map((n) => (
+              <View key={n.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{n.title}</Text>
+                  <Text style={styles.meta}>{n.body}</Text>
+                  <Text style={styles.metaFaint}>{new Date(n.created_at).toLocaleString()}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteNotice(n.id)}>Delete</Button></View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {tab === 'polls' && (
-  <View>
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeaderRow}>
-        <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
-        <Text style={styles.sectionTitle}>Create a Poll</Text>
-      </View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
-      <View style={styles.inputWrap}><TextInput mode="flat" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
-      <Button mode="contained" onPress={handleCreatePoll} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
-    </View>
-    <View style={styles.sectionHeaderRow}>
-      <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
-      <Text style={styles.sectionTitle}>Active Polls ({allPolls.length})</Text>
-    </View>
-    {allPolls.map((p) => (
-      <View key={p.id} style={[styles.card, { marginBottom: 12 }]}>
-        <View style={{ padding: 16 }}>
-          <Text style={styles.visitorName}>{p.question}</Text>
-          <Text style={styles.metaFaint}>{new Date(p.created_at).toLocaleString()}</Text>
-        </View>
-        <Divider style={{ backgroundColor: BORDER }} />
-        <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deletePoll(p.id)}>Delete</Button></View>
-      </View>
-    ))}
-  </View>
-)}
+          <View>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <Avatar.Icon size={30} icon="poll" style={styles.sectionIcon} color={ACCENT} />
+                <Text style={styles.sectionTitle}>Create a Poll</Text>
+              </View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Question" value={pollQuestion} onChangeText={setPollQuestion} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Option 1" value={pollOption1} onChangeText={setPollOption1} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <View style={styles.inputWrap}><TextInput mode="flat" label="Option 2" value={pollOption2} onChangeText={setPollOption2} style={styles.input} underlineColor="transparent" activeUnderlineColor="transparent" textColor={INK} theme={inputTheme} cursorColor={ACCENT} selectionColor={ACCENT_SOFT} /></View>
+              <Button mode="contained" onPress={handleCreatePoll} buttonColor={ACCENT} textColor="#fff" style={styles.submitButton} contentStyle={{ paddingVertical: 4 }}>Create Poll</Button>
+            </View>
+            <View style={styles.sectionHeaderRow}>
+              <Avatar.Icon size={30} icon="format-list-bulleted" style={styles.sectionIcon} color={ACCENT} />
+              <Text style={styles.sectionTitle}>Active Polls ({allPolls.length})</Text>
+            </View>
+            {allPolls.map((p) => (
+              <View key={p.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{p.question}</Text>
+                  <Text style={styles.metaFaint}>{new Date(p.created_at).toLocaleString()}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deletePoll(p.id)}>Delete</Button></View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {tab === 'tickets' && (
           <>
@@ -736,15 +838,15 @@ const deleteDue = async (id: string) => {
               <Text style={styles.sectionTitle}>Amenities ({amenities.length})</Text>
             </View>
             {amenities.map((a) => (
-  <View key={a.id} style={[styles.card, { marginBottom: 12 }]}>
-    <View style={{ padding: 16 }}>
-      <Text style={styles.visitorName}>{a.name}</Text>
-      <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
-    </View>
-    <Divider style={{ backgroundColor: BORDER }} />
-    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteAmenity(a.id)}>Delete</Button></View>
-  </View>
-))}
+              <View key={a.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>{a.name}</Text>
+                  <Text style={styles.meta}>Capacity: {a.capacity} · Slots: {a.slots.length}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteAmenity(a.id)}>Delete</Button></View>
+              </View>
+            ))}
 
             <View style={styles.sectionHeaderRow}>
               <Avatar.Icon size={30} icon="calendar-clock" style={styles.sectionIcon} color={ACCENT} />
@@ -764,7 +866,7 @@ const deleteDue = async (id: string) => {
           </>
         )}
 
-{tab === 'dues' && (
+        {tab === 'dues' && (
           <View>
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeaderRow}>
@@ -851,12 +953,12 @@ const deleteDue = async (id: string) => {
               </View>
             )}
             {societySubTab === 'towers' && towers.map((t) => (
-  <View key={t.id} style={[styles.card, { marginBottom: 12 }]}>
-    <View style={{ padding: 16 }}><Text style={styles.visitorName}>{t.name}</Text></View>
-    <Divider style={{ backgroundColor: BORDER }} />
-    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteTower(t.id)}>Delete</Button></View>
-  </View>
-))}
+              <View key={t.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}><Text style={styles.visitorName}>{t.name}</Text></View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteTower(t.id)}>Delete</Button></View>
+              </View>
+            ))}
 
             {societySubTab === 'flats' && (
               <View style={styles.sectionCard}>
@@ -871,15 +973,15 @@ const deleteDue = async (id: string) => {
               </View>
             )}
             {societySubTab === 'flats' && flats.map((f) => (
-  <View key={f.id} style={[styles.card, { marginBottom: 12 }]}>
-    <View style={{ padding: 16 }}>
-      <Text style={styles.visitorName}>Flat {f.flat_number}</Text>
-      <Text style={styles.meta}>{towerNameFor(f.tower_id)}</Text>
-    </View>
-    <Divider style={{ backgroundColor: BORDER }} />
-    <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteFlat(f.id)}>Delete</Button></View>
-  </View>
-))}
+              <View key={f.id} style={[styles.card, { marginBottom: 12 }]}>
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.visitorName}>Flat {f.flat_number}</Text>
+                  <Text style={styles.meta}>{towerNameFor(f.tower_id)}</Text>
+                </View>
+                <Divider style={{ backgroundColor: BORDER }} />
+                <View style={styles.cardActions}><Button compact textColor={DANGER} onPress={() => deleteFlat(f.id)}>Delete</Button></View>
+              </View>
+            ))}
 
             {societySubTab === 'residents' && (
               <View>
@@ -912,43 +1014,43 @@ const deleteDue = async (id: string) => {
                   <Text style={styles.sectionTitle}>All Residents ({approvedResidents.length})</Text>
                 </View>
                 {approvedResidents.map((r) => (
-  <View key={r.id} style={[styles.card, { marginBottom: 12 }]}>
-    <View style={{ padding: 16 }}>
-      <View style={styles.rowWithImage}>
-        <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
-        <View>
-          <Text style={styles.visitorName}>{r.full_name}</Text>
-          <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
-        </View>
-      </View>
-      {reassigningId === r.id && (
-        <View style={{ marginTop: 12 }}>
-          <Text style={styles.fieldLabel}>Move to flat:</Text>
-          <View style={styles.filterRow}>
-            {flats.map((f) => (
-              <Chip
-                key={f.id}
-                selected={r.flat_id === f.id}
-                onPress={() => { reassignResidentFlat(r.id, f.id); setReassigningId(null); }}
-                style={[styles.filterChip, r.flat_id === f.id && styles.chipSelected]}
-                textStyle={r.flat_id === f.id ? styles.chipTextSelected : styles.chipText}
-              >
-                {f.flat_number}
-              </Chip>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
-    <Divider style={{ backgroundColor: BORDER }} />
-    <View style={styles.cardActions}>
-      <Button compact textColor={ACCENT} onPress={() => setReassigningId(reassigningId === r.id ? null : r.id)}>
-        {reassigningId === r.id ? 'Cancel' : 'Reassign Flat'}
-      </Button>
-      <Button compact textColor={DANGER} onPress={() => deleteResident(r.id, r.full_name)}>Remove</Button>
-    </View>
-  </View>
-))}
+                  <View key={r.id} style={[styles.card, { marginBottom: 12 }]}>
+                    <View style={{ padding: 16 }}>
+                      <View style={styles.rowWithImage}>
+                        <View style={styles.thumbPlaceholder}><Text style={styles.thumbInitial}>{r.full_name?.[0]?.toUpperCase() ?? '?'}</Text></View>
+                        <View>
+                          <Text style={styles.visitorName}>{r.full_name}</Text>
+                          <Text style={styles.meta}>{r.role} · Flat {flatNumberFor(r.flat_id)}</Text>
+                        </View>
+                      </View>
+                      {reassigningId === r.id && (
+                        <View style={{ marginTop: 12 }}>
+                          <Text style={styles.fieldLabel}>Move to flat:</Text>
+                          <View style={styles.filterRow}>
+                            {flats.map((f) => (
+                              <Chip
+                                key={f.id}
+                                selected={r.flat_id === f.id}
+                                onPress={() => { reassignResidentFlat(r.id, f.id); setReassigningId(null); }}
+                                style={[styles.filterChip, r.flat_id === f.id && styles.chipSelected]}
+                                textStyle={r.flat_id === f.id ? styles.chipTextSelected : styles.chipText}
+                              >
+                                {f.flat_number}
+                              </Chip>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                    <Divider style={{ backgroundColor: BORDER }} />
+                    <View style={styles.cardActions}>
+                      <Button compact textColor={ACCENT} onPress={() => setReassigningId(reassigningId === r.id ? null : r.id)}>
+                        {reassigningId === r.id ? 'Cancel' : 'Reassign Flat'}
+                      </Button>
+                      <Button compact textColor={DANGER} onPress={() => deleteResident(r.id, r.full_name)}>Remove</Button>
+                    </View>
+                  </View>
+                ))}
               </View>
             )}
 
@@ -1021,8 +1123,8 @@ const deleteDue = async (id: string) => {
           <View style={[styles.navIconWrap, tab === 'visitors' && styles.navIconWrapActive]}>
             <IconButton icon="account-group-outline" size={22} iconColor={tab === 'visitors' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
             {pendingCount > 0 && tab !== 'visitors' && (
-  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingCount > 9 ? '9+' : pendingCount}</Text></View>
-)}
+              <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingCount > 9 ? '9+' : pendingCount}</Text></View>
+            )}
           </View>
           <Text style={[styles.navLabel, tab === 'visitors' && styles.navLabelActive]}>Visitors</Text>
         </Pressable>
@@ -1030,9 +1132,9 @@ const deleteDue = async (id: string) => {
         <Pressable style={styles.navItem} onPress={() => setTab('tickets')} hitSlop={8}>
           <View style={[styles.navIconWrap, tab === 'tickets' && styles.navIconWrapActive]}>
             <IconButton icon="headset" size={22} iconColor={tab === 'tickets' ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
-           {openTicketsCount > 0 && tab !== 'tickets' && (
-  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{openTicketsCount > 9 ? '9+' : openTicketsCount}</Text></View>
-)}
+            {openTicketsCount > 0 && tab !== 'tickets' && (
+              <View style={styles.navBadge}><Text style={styles.navBadgeText}>{openTicketsCount > 9 ? '9+' : openTicketsCount}</Text></View>
+            )}
           </View>
           <Text style={[styles.navLabel, tab === 'tickets' && styles.navLabelActive]}>Tickets</Text>
         </Pressable>
@@ -1040,9 +1142,9 @@ const deleteDue = async (id: string) => {
         <Pressable style={styles.navItem} onPress={() => setMoreOpen(true)} hitSlop={8}>
           <View style={[styles.navIconWrap, isMoreActiveTab && styles.navIconWrapActive]}>
             <IconButton icon="dots-grid" size={22} iconColor={isMoreActiveTab ? ACCENT : INK_FAINT} style={{ margin: 0 }} />
-           {pendingResidents.length > 0 && !isMoreActiveTab && (
-  <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingResidents.length > 9 ? '9+' : pendingResidents.length}</Text></View>
-)}
+            {pendingResidents.length > 0 && !isMoreActiveTab && (
+              <View style={styles.navBadge}><Text style={styles.navBadgeText}>{pendingResidents.length > 9 ? '9+' : pendingResidents.length}</Text></View>
+            )}
           </View>
           <Text style={[styles.navLabel, isMoreActiveTab && styles.navLabelActive]}>More</Text>
         </Pressable>
@@ -1155,9 +1257,9 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
 
   statCard: {
-  flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14,
-  shadowColor: '#151329', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
-},
+    flex: 1, borderRadius: 16, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, alignItems: 'center', paddingVertical: 14,
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 1,
+  },
   statNum: { fontSize: 20, fontWeight: '800', color: INK },
   statLabel: { fontSize: 11, color: INK_MUTED, marginTop: 4, textAlign: 'center', fontWeight: '600' },
   homeSectionLabel: { fontSize: 13, fontWeight: '700', color: INK_MUTED, marginBottom: 10, letterSpacing: 0.3, textTransform: 'uppercase' },
@@ -1188,9 +1290,9 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: INK, fontWeight: '600' },
 
   card: {
-  borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden',
-  shadowColor: '#151329', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
-},
+    borderRadius: 18, backgroundColor: CARD_BG, borderWidth: 1, borderColor: BORDER, overflow: 'hidden',
+    shadowColor: '#151329', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
+  },
   cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 12, gap: 4 },
   pendingCard: { borderWidth: 1.5, borderColor: WARN, marginBottom: 12 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
