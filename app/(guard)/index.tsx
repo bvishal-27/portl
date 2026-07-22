@@ -49,6 +49,7 @@ type VisitorRequest = {
   entry_time: string | null;
   exit_time: string | null;
   pre_approved: boolean;
+  otp_code: string | null;
   created_at: string;
   visitors: {
     name: string;
@@ -96,147 +97,78 @@ const isExpiredDelivery = (item: VisitorRequest) => {
   return minutesSince > 30;
 };
 
-const VisitorCard = memo(function VisitorCard({
+// Compact Row Item shown in lists
+const VisitorRowItem = memo(function VisitorRowItem({
   item,
-  statusColor,
-  statusBg,
-  actionLoadingId,
-  markEntry,
-  markExit,
+  onSelect,
 }: {
   item: VisitorRequest;
-  statusColor: (s: string) => string;
-  statusBg: (s: string) => string;
-  actionLoadingId: string | null;
-  markEntry: (id: string) => void;
-  markExit: (id: string) => void;
+  onSelect: (item: VisitorRequest) => void;
 }) {
   const expired = isExpiredDelivery(item);
+  const isDelivery = item.visitors?.visitor_type === "delivery";
+  const minsPassed = Math.floor(
+    (Date.now() - new Date(item.created_at).getTime()) / 60000
+  );
 
   return (
-    <View style={styles.card}>
-      <View style={{ padding: 16 }}>
-        <View style={styles.rowWithImage}>
-          {item.visitors?.photo_url ? (
-            <Image
-              source={{ uri: item.visitors.photo_url }}
-              style={styles.thumb}
-            />
-          ) : (
-            <View style={styles.thumbPlaceholder}>
-              <Text style={styles.thumbInitial}>
-                {item.visitors?.name?.[0]?.toUpperCase() ?? "?"}
-              </Text>
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <View style={styles.row}>
-              <Text style={styles.visitorName} numberOfLines={1}>
-                {item.visitors?.name}
-              </Text>
-              <Chip
-                compact
-                textStyle={{
-                  color: expired ? DANGER : statusColor(item.status),
-                  fontWeight: "600",
-                  fontSize: 12,
-                }}
-                style={{
-                  backgroundColor: expired ? DANGER_BG : statusBg(item.status),
-                }}
-              >
-                {expired
-                  ? "expired"
-                  : item.pre_approved
-                  ? "pre-approved"
-                  : item.status}
-              </Chip>
-            </View>
-            <Text style={styles.meta}>
-              Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}
-            </Text>
-            <Text style={styles.metaFaint}>
-              {new Date(item.created_at).toLocaleString()}
-            </Text>
-            {(item.entry_time || item.exit_time) && (
-              <View style={styles.timeRow}>
-                {item.entry_time && (
-                  <View style={styles.timeChip}>
-                    <Text style={styles.timeChipText}>
-                      In{" "}
-                      {new Date(item.entry_time).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                )}
-                {item.exit_time && (
-                  <View style={styles.timeChip}>
-                    <Text style={styles.timeChipText}>
-                      Out{" "}
-                      {new Date(item.exit_time).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
+    <Pressable style={styles.compactRow} onPress={() => onSelect(item)}>
+      {item.visitors?.photo_url ? (
+        <Image source={{ uri: item.visitors.photo_url }} style={styles.thumbRow} />
+      ) : (
+        <View style={styles.thumbPlaceholderRow}>
+          <Text style={styles.thumbInitialRow}>
+            {item.visitors?.name?.[0]?.toUpperCase() ?? "?"}
+          </Text>
         </View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        <View style={styles.row}>
+          <Text style={styles.visitorNameRow} numberOfLines={1}>
+            {item.visitors?.name}
+          </Text>
+          <Chip
+            compact
+            textStyle={{
+              color: expired ? DANGER : statusColor(item.status),
+              fontWeight: "600",
+              fontSize: 11,
+            }}
+            style={{
+              backgroundColor: expired ? DANGER_BG : statusBg(item.status),
+            }}
+          >
+            {expired
+              ? "expired"
+              : item.pre_approved
+              ? "pre-approved"
+              : item.status}
+          </Chip>
+        </View>
+        <Text style={styles.metaRow}>
+          Flat {item.flats?.flat_number ?? "—"} · {item.visitors?.visitor_type}
+        </Text>
+        {isDelivery && item.status === "approved" && !item.entry_time && (
+          <Text style={[styles.timerTextRow, { color: expired ? DANGER : ACCENT }]}>
+            {expired ? `🚨 Expired (${minsPassed}m)` : `⏳ Delivery: ${minsPassed}/30m`}
+          </Text>
+        )}
       </View>
-      {(item.status === "approved" && !item.entry_time && !expired) ||
-      (item.entry_time && !item.exit_time) ? (
-        <View>
-          <Divider style={{ backgroundColor: BORDER }} />
-          <View style={styles.cardActions}>
-            {item.status === "approved" && !item.entry_time && !expired && (
-              <Button
-                mode="contained"
-                icon="login"
-                buttonColor={ACCENT}
-                textColor="#fff"
-                loading={actionLoadingId === item.id}
-                disabled={actionLoadingId === item.id}
-                onPress={() => markEntry(item.id)}
-                style={styles.actionBtn}
-              >
-                Mark Entry
-              </Button>
-            )}
-            {item.entry_time && !item.exit_time && (
-              <Button
-                mode="outlined"
-                icon="logout"
-                textColor={ACCENT}
-                style={[styles.actionBtn, { borderColor: ACCENT }]}
-                loading={actionLoadingId === item.id}
-                disabled={actionLoadingId === item.id}
-                onPress={() => markExit(item.id)}
-              >
-                Mark Exit
-              </Button>
-            )}
-          </View>
-        </View>
-      ) : null}
-    </View>
+      <IconButton icon="chevron-right" size={20} iconColor={INK_FAINT} style={{ margin: 0 }} />
+    </Pressable>
   );
 });
 
 export default function GuardHome() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState("home");
+
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [flatNumber, setFlatNumber] = useState("");
   const [visitorType, setVisitorType] = useState("guest");
   const [customVisitorType, setCustomVisitorType] = useState("");
-
-  const [otpVerify, setOtpVerify] = useState("");
-  const [otpLoading, setOtpLoading] = useState(false);
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -253,6 +185,10 @@ export default function GuardHome() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
+
+  // Single card view state
+  const [selectedVisitor, setSelectedVisitor] = useState<VisitorRequest | null>(null);
+  const [inputOtp, setInputOtp] = useState("");
 
   const [sosAlerts, setSosAlerts] = useState<SOSAlert[]>([]);
   const [resolvingSosId, setResolvingSosId] = useState<string | null>(null);
@@ -323,11 +259,17 @@ export default function GuardHome() {
     const { data, error } = await supabase
       .from("visitor_requests")
       .select(
-        "id, status, entry_time, exit_time, pre_approved, created_at, visitors(name, visitor_type, photo_url), flats(flat_number, tower_id)"
+        "id, status, entry_time, exit_time, pre_approved, otp_code, created_at, visitors(name, visitor_type, photo_url), flats(flat_number, tower_id)"
       )
       .order("created_at", { ascending: false })
       .limit(100);
-    if (!error && data) setRequests(data as any);
+    if (!error && data) {
+      setRequests(data as any);
+      if (selectedVisitor) {
+        const updatedSelected = (data as any[]).find((r) => r.id === selectedVisitor.id);
+        if (updatedSelected) setSelectedVisitor(updatedSelected);
+      }
+    }
   };
 
   const fetchTowers = async () => {
@@ -425,46 +367,13 @@ export default function GuardHome() {
       const { error } = await supabase.storage
         .from("portl-images")
         .upload(fileName, arrayBuffer, { contentType: "image/jpeg" });
-      if (error) {
-        console.log("Upload error:", error.message);
-        return null;
-      }
+      if (error) return null;
       const { data } = supabase.storage
         .from("portl-images")
         .getPublicUrl(fileName);
       return data.publicUrl;
-    } catch (err) {
-      console.log("Upload failed:", err);
+    } catch {
       return null;
-    }
-  };
-
-  const verifyOtp = async () => {
-    if (otpVerify.trim().length !== 6) {
-      Alert.alert("Invalid code", "Enter the 6-digit code");
-      return;
-    }
-    setOtpLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("visitor_requests")
-        .select("id, flat_id, visitors(name), flats(flat_number)")
-        .eq("otp_code", otpVerify.trim())
-        .eq("status", "approved")
-        .is("entry_time", null)
-        .single();
-
-      if (error || !data) {
-        Alert.alert("Not found", "No matching pre-approved guest with this code");
-        return;
-      }
-      Alert.alert(
-        "Guest Verified",
-        `${(data as any).visitors?.name} — Flat ${(data as any).flats?.flat_number}\n\nMark their entry from Live Requests.`
-      );
-      setOtpVerify("");
-    } finally {
-      setOtpLoading(false);
     }
   };
 
@@ -554,11 +463,8 @@ export default function GuardHome() {
         "Request sent",
         `${name}'s visit request was sent for approval`
       );
-    } catch (err) {
-      Alert.alert(
-        "Something went wrong",
-        "Please check your connection and try again"
-      );
+    } catch {
+      Alert.alert("Connection Error", "Please check your network connection.");
     } finally {
       setLoading(false);
     }
@@ -574,6 +480,10 @@ export default function GuardHome() {
         .update({ entry_time: new Date().toISOString() })
         .eq("id", id);
       if (error) Alert.alert("Error", error.message);
+      else {
+        setSelectedVisitor(null);
+        setInputOtp("");
+      }
     } catch {
       Alert.alert("Something went wrong", "Please try again");
     } finally {
@@ -592,6 +502,9 @@ export default function GuardHome() {
         .update({ exit_time: new Date().toISOString() })
         .eq("id", id);
       if (error) Alert.alert("Error", error.message);
+      else {
+        setSelectedVisitor(null);
+      }
     } catch {
       Alert.alert("Something went wrong", "Please try again");
     } finally {
@@ -599,6 +512,18 @@ export default function GuardHome() {
       setActionLoadingId(null);
     }
   }, []);
+
+  const handleOtpVerificationAndEntry = (item: VisitorRequest) => {
+    if (inputOtp.trim().length !== 6) {
+      Alert.alert("Invalid Code", "Please enter the 6-digit OTP passcode.");
+      return;
+    }
+    if (inputOtp.trim() === item.otp_code?.trim()) {
+      markEntry(item.id);
+    } else {
+      Alert.alert("Incorrect Passcode", "The OTP entered does not match the resident's invitation.");
+    }
+  };
 
   const activeFilterCount =
     (filterStatus !== "all" ? 1 : 0) +
@@ -649,7 +574,9 @@ export default function GuardHome() {
     .filter((r) => r.status === "pending")
     .slice(0, 3);
   const awaitingEntry = requests
-    .filter((r) => r.status === "approved" && !r.entry_time && !isExpiredDelivery(r))
+    .filter(
+      (r) => r.status === "approved" && !r.entry_time && !isExpiredDelivery(r)
+    )
     .slice(0, 3);
 
   const goToTab = (key: string) => {
@@ -707,11 +634,11 @@ export default function GuardHome() {
                         {
                           borderColor: DANGER,
                           borderWidth: 2,
-                          marginBottom: 12,
+                          marginBottom: 16,
                         },
                       ]}
                     >
-                      <View style={{ padding: 16 }}>
+                      <View style={{ padding: 18 }}>
                         <View style={styles.row}>
                           <Chip
                             compact
@@ -845,61 +772,19 @@ export default function GuardHome() {
                     </Pressable>
                   </View>
                   {awaitingEntry.map((item) => (
-                    <View
+                    <VisitorRowItem
                       key={item.id}
-                      style={[styles.card, { marginBottom: 12 }]}
-                    >
-                      <View style={{ padding: 16 }}>
-                        <View style={styles.rowWithImage}>
-                          {item.visitors?.photo_url ? (
-                            <Image
-                              source={{ uri: item.visitors.photo_url }}
-                              style={styles.thumb}
-                            />
-                          ) : (
-                            <View style={styles.thumbPlaceholder}>
-                              <Text style={styles.thumbInitial}>
-                                {item.visitors?.name?.[0]?.toUpperCase() ?? "?"}
-                              </Text>
-                            </View>
-                          )}
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.visitorName}>
-                              {item.visitors?.name}
-                            </Text>
-                            <Text style={styles.meta}>
-                              Flat {item.flats?.flat_number} ·{" "}
-                              {item.visitors?.visitor_type}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                      <Divider style={{ backgroundColor: BORDER }} />
-                      <View style={styles.cardActions}>
-                        <Button
-                          mode="contained"
-                          icon="login"
-                          buttonColor={ACCENT}
-                          textColor="#fff"
-                          loading={actionLoadingId === item.id}
-                          disabled={actionLoadingId === item.id}
-                          onPress={() => markEntry(item.id)}
-                          style={styles.actionBtn}
-                        >
-                          Mark Entry
-                        </Button>
-                      </View>
-                    </View>
+                      item={item}
+                      onSelect={(v) => {
+                        setSelectedVisitor(v);
+                        setInputOtp("");
+                      }}
+                    />
                   ))}
                 </>
               )}
 
-              <View
-                style={[
-                  styles.sectionHeaderRow,
-                  { marginTop: awaitingEntry.length > 0 ? 8 : 8 },
-                ]}
-              >
+              <View style={[styles.sectionHeaderRow, { marginTop: 12 }]}>
                 <Avatar.Icon
                   size={30}
                   icon="clock-alert-outline"
@@ -914,7 +799,7 @@ export default function GuardHome() {
                 </Pressable>
               </View>
               {awaitingApproval.length === 0 ? (
-                <View style={[styles.emptyState, { marginBottom: 12 }]}>
+                <View style={[styles.emptyState, { marginBottom: 16 }]}>
                   <Avatar.Icon
                     size={44}
                     icon="check-circle-outline"
@@ -927,39 +812,14 @@ export default function GuardHome() {
                 </View>
               ) : (
                 awaitingApproval.map((item) => (
-                  <View
+                  <VisitorRowItem
                     key={item.id}
-                    style={[styles.card, { marginBottom: 12 }]}
-                  >
-                    <View style={{ padding: 16 }}>
-                      <View style={styles.rowWithImage}>
-                        {item.visitors?.photo_url ? (
-                          <Image
-                            source={{ uri: item.visitors.photo_url }}
-                            style={styles.thumb}
-                          />
-                        ) : (
-                          <View style={styles.thumbPlaceholder}>
-                            <Text style={styles.thumbInitial}>
-                              {item.visitors?.name?.[0]?.toUpperCase() ?? "?"}
-                            </Text>
-                          </View>
-                        )}
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.visitorName}>
-                            {item.visitors?.name}
-                          </Text>
-                          <Text style={styles.meta}>
-                            Flat {item.flats?.flat_number} ·{" "}
-                            {item.visitors?.visitor_type}
-                          </Text>
-                          <Text style={styles.metaFaint}>
-                            {new Date(item.created_at).toLocaleString()}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
+                    item={item}
+                    onSelect={(v) => {
+                      setSelectedVisitor(v);
+                      setInputOtp("");
+                    }}
+                  />
                 ))
               )}
             </>
@@ -974,39 +834,10 @@ export default function GuardHome() {
                   style={styles.sectionIcon}
                   color={ACCENT}
                 />
-                <Text style={styles.sectionTitle}>Register Visitor</Text>
+                <Text style={styles.sectionTitle}>
+                  Register Walk-in Visitor
+                </Text>
               </View>
-
-              {/* OTP Verification UI */}
-              <View style={styles.inputWrap}>
-                <TextInput
-                  mode="flat"
-                  label="Verify guest by code (optional)"
-                  value={otpVerify}
-                  onChangeText={(t) =>
-                    setOtpVerify(t.replace(/\D/g, "").slice(0, 6))
-                  }
-                  keyboardType="numeric"
-                  maxLength={6}
-                  style={styles.input}
-                  underlineColor="transparent"
-                  activeUnderlineColor="transparent"
-                  textColor={INK}
-                  theme={inputTheme}
-                  cursorColor={ACCENT}
-                />
-              </View>
-              <Button
-                mode="outlined"
-                onPress={verifyOtp}
-                loading={otpLoading}
-                disabled={otpLoading}
-                textColor={ACCENT}
-                style={[styles.input, { borderColor: ACCENT }]}
-              >
-                Verify Code
-              </Button>
-              <Divider style={{ marginVertical: 16, backgroundColor: BORDER }} />
 
               <View style={styles.inputWrap}>
                 <TextInput
@@ -1405,15 +1236,14 @@ export default function GuardHome() {
                 data={filtered}
                 keyExtractor={(item) => item.id}
                 scrollEnabled={false}
-                ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                 renderItem={({ item }) => (
-                  <VisitorCard
+                  <VisitorRowItem
                     item={item}
-                    statusColor={statusColor}
-                    statusBg={statusBg}
-                    actionLoadingId={actionLoadingId}
-                    markEntry={markEntry}
-                    markExit={markExit}
+                    onSelect={(v) => {
+                      setSelectedVisitor(v);
+                      setInputOtp("");
+                    }}
                   />
                 )}
               />
@@ -1424,6 +1254,234 @@ export default function GuardHome() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* SINGLE VISITOR FOCUSED CARD MODAL (SCROLL-OPTIMIZED) */}
+      <Modal
+        visible={!!selectedVisitor}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedVisitor(null)}
+      >
+        <View style={styles.modalBackdropContainer}>
+          {/* Absolute Backdrop to dismiss modal cleanly without stealing ScrollView touch events */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setSelectedVisitor(null)}
+          />
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.keyboardAvoidingModalView}
+          >
+            <View style={styles.focusedCardModal}>
+              {selectedVisitor && (
+                <>
+                  <View style={styles.modalTopHeader}>
+                    <Text style={styles.modalTitle}>Visitor Pass Verification</Text>
+                    <IconButton
+                      icon="close"
+                      size={22}
+                      iconColor={INK}
+                      onPress={() => setSelectedVisitor(null)}
+                      style={{ margin: 0 }}
+                    />
+                  </View>
+
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{ paddingBottom: 16 }}
+                  >
+                    <View style={styles.focusedImageCenter}>
+                      {selectedVisitor.visitors?.photo_url ? (
+                        <Image
+                          source={{ uri: selectedVisitor.visitors.photo_url }}
+                          style={styles.focusedAvatar}
+                        />
+                      ) : (
+                        <View style={styles.focusedAvatarPlaceholder}>
+                          <Text style={styles.focusedAvatarInitial}>
+                            {selectedVisitor.visitors?.name?.[0]?.toUpperCase() ?? "?"}
+                          </Text>
+                        </View>
+                      )}
+
+                      <Text style={styles.focusedVisitorName}>
+                        {selectedVisitor.visitors?.name}
+                      </Text>
+
+                      <Chip
+                        compact
+                        textStyle={{
+                          color: isExpiredDelivery(selectedVisitor)
+                            ? DANGER
+                            : statusColor(selectedVisitor.status),
+                          fontWeight: "700",
+                          fontSize: 12,
+                        }}
+                        style={{
+                          backgroundColor: isExpiredDelivery(selectedVisitor)
+                            ? DANGER_BG
+                            : statusBg(selectedVisitor.status),
+                          marginTop: 6,
+                        }}
+                      >
+                        {isExpiredDelivery(selectedVisitor)
+                          ? "Expired Request"
+                          : selectedVisitor.pre_approved
+                          ? "Pre-Approved"
+                          : selectedVisitor.status}
+                      </Chip>
+                    </View>
+
+                    <Divider style={{ marginVertical: 14, backgroundColor: BORDER }} />
+
+                    <View style={styles.detailMetaRow}>
+                      <Text style={styles.detailLabel}>Destination Flat</Text>
+                      <Text style={styles.detailValue}>
+                        Flat {selectedVisitor.flats?.flat_number ?? "—"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.detailMetaRow}>
+                      <Text style={styles.detailLabel}>Visitor Category</Text>
+                      <Text style={styles.detailValue}>
+                        {selectedVisitor.visitors?.visitor_type}
+                      </Text>
+                    </View>
+
+                    <View style={styles.detailMetaRow}>
+                      <Text style={styles.detailLabel}>Request Time</Text>
+                      <Text style={styles.detailValue}>
+                        {new Date(selectedVisitor.created_at).toLocaleString()}
+                      </Text>
+                    </View>
+
+                    {/* Pre-approved Inline OTP Verification */}
+                    {selectedVisitor.pre_approved &&
+                      selectedVisitor.status === "approved" &&
+                      !selectedVisitor.entry_time &&
+                      !isExpiredDelivery(selectedVisitor) && (
+                        <View style={styles.cardOtpBox}>
+                          <Text style={styles.sectionSubtitleHeader}>
+                            Guest Passcode Verification
+                          </Text>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              gap: 8,
+                              alignItems: "center",
+                              marginTop: 6,
+                            }}
+                          >
+                            <TextInput
+                              mode="flat"
+                              placeholder="Enter 6-digit OTP"
+                              value={inputOtp}
+                              onChangeText={(t) =>
+                                setInputOtp(t.replace(/\D/g, "").slice(0, 6))
+                              }
+                              keyboardType="numeric"
+                              maxLength={6}
+                              style={styles.cardOtpInput}
+                              underlineColor="transparent"
+                              activeUnderlineColor="transparent"
+                              textColor={INK}
+                              dense
+                            />
+                            <Button
+                              mode="contained"
+                              buttonColor={ACCENT}
+                              textColor="#fff"
+                              loading={actionLoadingId === selectedVisitor.id}
+                              disabled={
+                                actionLoadingId === selectedVisitor.id ||
+                                inputOtp.length !== 6
+                              }
+                              onPress={() =>
+                                handleOtpVerificationAndEntry(selectedVisitor)
+                              }
+                              style={{ borderRadius: 10 }}
+                              compact
+                            >
+                              Verify Passcode
+                            </Button>
+                          </View>
+
+                          <Divider
+                            style={{ marginVertical: 12, backgroundColor: BORDER }}
+                          />
+
+                          <Button
+                            mode="outlined"
+                            textColor={ACCENT}
+                            icon="account-check-outline"
+                            style={{ borderColor: ACCENT, borderRadius: 12 }}
+                            loading={actionLoadingId === selectedVisitor.id}
+                            disabled={actionLoadingId === selectedVisitor.id}
+                            onPress={() => {
+                              Alert.alert(
+                                "Visual Identity Check",
+                                `Confirm that visitor's face matches the pre-approved profile photo for ${selectedVisitor.visitors?.name}?`,
+                                [
+                                  { text: "Cancel", style: "cancel" },
+                                  {
+                                    text: "Confirm & Grant Entry",
+                                    onPress: () => markEntry(selectedVisitor.id),
+                                  },
+                                ]
+                              );
+                            }}
+                          >
+                            Verify Identity via Photo Check
+                          </Button>
+                        </View>
+                      )}
+
+                    {/* Action Buttons for Normal Walk-ins and Outbound Exits */}
+                    {!selectedVisitor.pre_approved &&
+                      selectedVisitor.status === "approved" &&
+                      !selectedVisitor.entry_time &&
+                      !isExpiredDelivery(selectedVisitor) && (
+                        <Button
+                          mode="contained"
+                          icon="login"
+                          buttonColor={ACCENT}
+                          textColor="#fff"
+                          loading={actionLoadingId === selectedVisitor.id}
+                          disabled={actionLoadingId === selectedVisitor.id}
+                          onPress={() => markEntry(selectedVisitor.id)}
+                          style={{ borderRadius: 14, marginTop: 16 }}
+                        >
+                          Mark Entry
+                        </Button>
+                      )}
+
+                    {selectedVisitor.entry_time && !selectedVisitor.exit_time && (
+                      <Button
+                        mode="outlined"
+                        icon="logout"
+                        textColor={ACCENT}
+                        style={{
+                          borderRadius: 14,
+                          borderColor: ACCENT,
+                          marginTop: 16,
+                        }}
+                        loading={actionLoadingId === selectedVisitor.id}
+                        disabled={actionLoadingId === selectedVisitor.id}
+                        onPress={() => markExit(selectedVisitor.id)}
+                      >
+                        Mark Exit
+                      </Button>
+                    )}
+                  </ScrollView>
+                </>
+              )}
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* BOTTOM NAV */}
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 10 }]}>
         <Pressable
           style={styles.navItem}
@@ -1527,6 +1585,7 @@ export default function GuardHome() {
         </Pressable>
       </View>
 
+      {/* PROFILE MODAL */}
       <Modal
         visible={profileOpen}
         animationType="slide"
@@ -1649,7 +1708,6 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 12 },
 
   statsRow: { flexDirection: "row", gap: 10, marginBottom: 22 },
-
   statCard: {
     flex: 1,
     borderRadius: 16,
@@ -1659,7 +1717,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
   },
-
   statNum: { fontSize: 20, fontWeight: "800", color: INK },
   statLabel: {
     fontSize: 11,
@@ -1787,17 +1844,117 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
+  // Compact List Item Styles
+  compactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 12,
+    marginBottom: 8,
+  },
+  thumbRow: { width: 44, height: 44, borderRadius: 22 },
+  thumbPlaceholderRow: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: ACCENT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  thumbInitialRow: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  visitorNameRow: { fontSize: 15, fontWeight: "700", color: INK, flexShrink: 1 },
+  metaRow: { fontSize: 12, color: INK_MUTED, marginTop: 2 },
+  timerTextRow: { fontSize: 11, fontWeight: "600", marginTop: 2 },
+
+  // Focused Modal Card Styles
+  modalBackdropContainer: {
+    flex: 1,
+    backgroundColor: "rgba(21,19,31,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  keyboardAvoidingModalView: {
+    width: "100%",
+    maxHeight: "85%",
+  },
+  focusedCardModal: {
+    backgroundColor: CARD_BG,
+    borderRadius: 24,
+    padding: 20,
+    width: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTopHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  modalTitle: { fontSize: 17, fontWeight: "800", color: INK },
+  focusedImageCenter: { alignItems: "center", marginTop: 6 },
+  focusedAvatar: { width: 90, height: 90, borderRadius: 45 },
+  focusedAvatarPlaceholder: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: ACCENT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  focusedAvatarInitial: { color: "#fff", fontSize: 34, fontWeight: "800" },
+  focusedVisitorName: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: INK,
+    marginTop: 10,
+  },
+  detailMetaRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+  },
+  detailLabel: { fontSize: 13, color: INK_MUTED, fontWeight: "500" },
+  detailValue: { fontSize: 13, color: INK, fontWeight: "700" },
+
   card: {
     borderRadius: 18,
     backgroundColor: CARD_BG,
     borderWidth: 1,
     borderColor: BORDER,
+    marginBottom: 16,
     overflow: "hidden",
     shadowColor: "#151329",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
+  },
+  cardOtpBox: {
+    marginTop: 14,
+    backgroundColor: INPUT_BG,
+    padding: 14,
+    borderRadius: 16,
+  },
+  sectionSubtitleHeader: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: INK,
+  },
+  cardOtpInput: {
+    flex: 1,
+    backgroundColor: CARD_BG,
+    borderRadius: 8,
+    fontSize: 14,
+    height: 40,
   },
   cardActions: {
     flexDirection: "row",
@@ -1812,29 +1969,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  rowWithImage: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   visitorName: { fontSize: 16, fontWeight: "700", color: INK, flexShrink: 1 },
   meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
   metaFaint: { color: INK_FAINT, marginTop: 2, fontSize: 12 },
-  thumb: { width: 52, height: 52, borderRadius: 26 },
-  thumbPlaceholder: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: ACCENT,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  thumbInitial: { color: "white", fontSize: 19, fontWeight: "700" },
-
-  timeRow: { flexDirection: "row", gap: 6, marginTop: 8 },
-  timeChip: {
-    backgroundColor: ACCENT_SOFT,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  timeChipText: { fontSize: 11, fontWeight: "600", color: ACCENT },
 
   filterLabel: {
     fontSize: 12,
@@ -1914,17 +2051,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   navIconWrapActive: { backgroundColor: ACCENT_SOFT },
-  navDot: {
-    position: "absolute",
-    top: 2,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: DANGER,
-    borderWidth: 1.5,
-    borderColor: CARD_BG,
-  },
   navBadge: {
     position: "absolute",
     top: -2,

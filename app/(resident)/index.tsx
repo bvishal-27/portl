@@ -10,8 +10,8 @@ import {
   Image,
   Modal,
   Pressable,
-  Share,
   KeyboardAvoidingView,
+  Linking,
 } from "react-native";
 import {
   Button,
@@ -24,6 +24,9 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import * as Clipboard from "expo-clipboard";
 import { decode } from "base64-arraybuffer";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../store/authStore";
@@ -45,10 +48,19 @@ const SUCCESS_BG = "#E9F8EF";
 const DANGER = "#C23B3B";
 const DANGER_BG = "#FBEAEA";
 
+const statusColor = (status: string) => {
+  if (status === "approved") return SUCCESS;
+  if (status === "denied") return DANGER;
+  return GOLD;
+};
+
 type VisitorRequest = {
   id: string;
   status: string;
   pre_approved: boolean;
+  otp_code: string | null;
+  entry_time: string | null;
+  exit_time: string | null;
   created_at: string;
   visitors: {
     name: string;
@@ -134,6 +146,14 @@ export default function ResidentHome() {
   const [showAllNotices, setShowAllNotices] = useState(false);
   const [showAllPolls, setShowAllPolls] = useState(false);
 
+  // Modal inspection states
+  const [selectedVisitor, setSelectedVisitor] = useState<VisitorRequest | null>(null);
+  const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
+  const [selectedReceiptDue, setSelectedReceiptDue] = useState<Due | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [sosOpen, setSosOpen] = useState(false);
@@ -147,6 +167,26 @@ export default function ResidentHome() {
     await supabase.auth.signOut();
     clearSession();
     router.replace("/(auth)/login");
+  };
+
+  const copyToClipboard = async (code: string) => {
+    await Clipboard.setStringAsync(code);
+    Alert.alert("Code Copied", `Passcode ${code} copied to clipboard!`);
+  };
+
+  const sharePasscode = (visitorName: string, code: string) => {
+    const msg = `Hi ${visitorName}, here is your entry passcode for ${myProfile?.tower_name ?? ""} Flat ${myProfile?.flat_number ?? ""}:\n\nCode: ${code}\n\nPlease show this code to the security guard at the main gate.`;
+    Sharing.shareAsync("", { dialogTitle: "Share Guest Passcode", mimeType: "text/plain" }).catch(() => {
+      Alert.alert("Passcode Message", msg);
+    });
+  };
+
+  const callPhone = (phone: string | null) => {
+    if (!phone) {
+      Alert.alert("No Phone Number", "No contact phone provided for this staff member.");
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
   };
 
   const sendSOS = async (emergencyType: string) => {
@@ -164,10 +204,7 @@ export default function ResidentHome() {
         return;
       }
       setSosOpen(false);
-      Alert.alert(
-        "Alert Sent",
-        "Guard and admin have been notified immediately.",
-      );
+      Alert.alert("Alert Sent", "Guard and admin have been notified immediately.");
     } finally {
       setSosLoading(false);
     }
@@ -177,12 +214,13 @@ export default function ResidentHome() {
     const { data, error } = await supabase
       .from("visitor_requests")
       .select(
-        "id, status, pre_approved, created_at, visitors(name, phone, visitor_type, photo_url)",
+        "id, status, pre_approved, otp_code, entry_time, exit_time, created_at, visitors(name, phone, visitor_type, photo_url)"
       )
       .eq("flat_id", currentFlatId)
       .order("created_at", { ascending: false });
     if (!error && data) setRequests(data as any);
   };
+
   const fetchNotices = async () => {
     const { data } = await supabase
       .from("notices")
@@ -190,6 +228,7 @@ export default function ResidentHome() {
       .order("created_at", { ascending: false });
     if (data) setNotices(data);
   };
+
   const fetchPolls = async () => {
     const { data } = await supabase
       .from("polls")
@@ -197,12 +236,14 @@ export default function ResidentHome() {
       .order("created_at", { ascending: false });
     if (data) setPolls(data as any);
   };
+
   const fetchVotes = async () => {
     const { data } = await supabase
       .from("poll_votes")
       .select("poll_id, option_id, voter_id");
     if (data) setVotes(data);
   };
+
   const fetchTickets = async () => {
     const { data } = await supabase
       .from("tickets")
@@ -211,6 +252,7 @@ export default function ResidentHome() {
       .order("created_at", { ascending: false });
     if (data) setTickets(data);
   };
+
   const fetchAmenities = async () => {
     const { data } = await supabase
       .from("amenities")
@@ -218,6 +260,7 @@ export default function ResidentHome() {
       .order("created_at", { ascending: false });
     if (data) setAmenities(data);
   };
+
   const fetchMyBookings = async () => {
     const { data } = await supabase
       .from("bookings")
@@ -226,6 +269,7 @@ export default function ResidentHome() {
       .order("booking_date", { ascending: true });
     if (data) setMyBookings(data);
   };
+
   const fetchStaff = async () => {
     const { data } = await supabase
       .from("staff_directory")
@@ -233,6 +277,7 @@ export default function ResidentHome() {
       .order("name");
     if (data) setStaff(data);
   };
+
   const fetchDues = async (currentFlatId: string) => {
     const { data } = await supabase
       .from("dues")
@@ -241,6 +286,7 @@ export default function ResidentHome() {
       .order("due_date", { ascending: false });
     if (data) setDues(data);
   };
+
   const fetchMyProfile = async () => {
     const { data } = await supabase
       .from("profiles")
@@ -295,7 +341,7 @@ export default function ResidentHome() {
               table: "visitor_requests",
               filter: `flat_id=eq.${profile.flat_id}`,
             },
-            () => fetchRequests(profile.flat_id),
+            () => fetchRequests(profile.flat_id)
           )
           .subscribe(),
         supabase
@@ -303,23 +349,15 @@ export default function ResidentHome() {
           .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "notices" },
-            () => fetchNotices(),
+            () => fetchNotices()
           )
           .subscribe(),
         supabase
           .channel(`polls_resident_${userId}`)
           .on(
             "postgres_changes",
-            { event: "*", schema: "public", table: "polls" },
-            () => fetchPolls(),
-          )
-          .subscribe(),
-        supabase
-          .channel(`votes_resident_${userId}`)
-          .on(
-            "postgres_changes",
             { event: "*", schema: "public", table: "poll_votes" },
-            () => fetchVotes(),
+            () => fetchVotes()
           )
           .subscribe(),
         supabase
@@ -332,36 +370,7 @@ export default function ResidentHome() {
               table: "tickets",
               filter: `resident_id=eq.${userId}`,
             },
-            () => fetchTickets(),
-          )
-          .subscribe(),
-        supabase
-          .channel(`amenities_resident_${userId}`)
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "amenities" },
-            () => fetchAmenities(),
-          )
-          .subscribe(),
-        supabase
-          .channel(`bookings_resident_${userId}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "bookings",
-              filter: `resident_id=eq.${userId}`,
-            },
-            () => fetchMyBookings(),
-          )
-          .subscribe(),
-        supabase
-          .channel(`staff_resident_${userId}`)
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "staff_directory" },
-            () => fetchStaff(),
+            () => fetchTickets()
           )
           .subscribe(),
         supabase
@@ -374,7 +383,7 @@ export default function ResidentHome() {
               table: "dues",
               filter: `flat_id=eq.${profile.flat_id}`,
             },
-            () => fetchDues(profile.flat_id),
+            () => fetchDues(profile.flat_id)
           )
           .subscribe(),
       ];
@@ -391,7 +400,7 @@ export default function ResidentHome() {
 
   const respondToRequest = async (
     requestId: string,
-    status: "approved" | "denied",
+    status: "approved" | "denied"
   ) => {
     const { error } = await supabase
       .from("visitor_requests")
@@ -431,51 +440,65 @@ export default function ResidentHome() {
   };
 
   const handlePreApprove = async () => {
-  if (guestLoading) return;
-  if (!guestName || !flatId) {
-    Alert.alert('Missing info', 'Enter a guest name');
-    return;
-  }
-  if (guestName.trim().length < 3 || guestName.trim().length > 15) {
-    Alert.alert('Invalid name', 'Guest name must be between 3 and 15 characters');
-    return;
-  }
-  if (guestPhone.trim().length > 0 && !/^\d{10}$/.test(guestPhone.trim())) {
-    Alert.alert('Invalid phone', 'Phone number must be exactly 10 digits');
-    return;
-  }
-  setGuestLoading(true);
-  try {
-    let photoUrl: string | null = null;
-    if (guestPhotoUri) photoUrl = await uploadGuestPhoto(guestPhotoUri);
-    const { data: visitor, error: visitorError } = await supabase
-      .from('visitors')
-      .insert({ name: guestName, phone: guestPhone, visitor_type: 'guest', photo_url: photoUrl })
-      .select()
-      .single();
-    if (visitorError || !visitor) {
-      Alert.alert('Error', visitorError?.message ?? 'Could not create guest');
+    if (guestLoading) return;
+    if (!guestName || !flatId) {
+      Alert.alert("Missing info", "Enter a guest name");
       return;
     }
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const { error: requestError } = await supabase.from('visitor_requests').insert({
-      visitor_id: visitor.id, flat_id: flatId, status: 'approved', pre_approved: true, otp_code: otpCode,
-    });
-    if (requestError) {
-      Alert.alert('Error', requestError.message);
+    if (guestName.trim().length < 3 || guestName.trim().length > 15) {
+      Alert.alert(
+        "Invalid name",
+        "Guest name must be between 3 and 15 characters"
+      );
       return;
     }
-    Alert.alert(
-      'Pre-approved',
-      `${guestName} is pre-approved.\n\nShare this code with your guest:\n\n${otpCode}\n\nGuard will verify entry using this code.`
-    );
-    setGuestName('');
-    setGuestPhone('');
-    setGuestPhotoUri(null);
-  } finally {
-    setGuestLoading(false);
-  }
-};
+    if (guestPhone.trim().length > 0 && !/^\d{10}$/.test(guestPhone.trim())) {
+      Alert.alert("Invalid phone", "Phone number must be exactly 10 digits");
+      return;
+    }
+    setGuestLoading(true);
+    try {
+      let photoUrl: string | null = null;
+      if (guestPhotoUri) photoUrl = await uploadGuestPhoto(guestPhotoUri);
+      const { data: visitor, error: visitorError } = await supabase
+        .from("visitors")
+        .insert({
+          name: guestName,
+          phone: guestPhone,
+          visitor_type: "guest",
+          photo_url: photoUrl,
+        })
+        .select()
+        .single();
+      if (visitorError || !visitor) {
+        Alert.alert("Error", visitorError?.message ?? "Could not create guest");
+        return;
+      }
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const { error: requestError } = await supabase
+        .from("visitor_requests")
+        .insert({
+          visitor_id: visitor.id,
+          flat_id: flatId,
+          status: "approved",
+          pre_approved: true,
+          otp_code: otpCode,
+        });
+      if (requestError) {
+        Alert.alert("Error", requestError.message);
+        return;
+      }
+      Alert.alert(
+        "Pre-approved Successfully",
+        `${guestName} is pre-approved.\n\nPasscode: ${otpCode}\n\nCode added to your Visitor History.`
+      );
+      setGuestName("");
+      setGuestPhone("");
+      setGuestPhotoUri(null);
+    } finally {
+      setGuestLoading(false);
+    }
+  };
 
   const castVote = async (pollId: string, optionId: string) => {
     const { error } = await supabase
@@ -530,8 +553,8 @@ export default function ResidentHome() {
     if (error) {
       if (error.code === "23505")
         Alert.alert(
-          "Already booked",
-          "This slot is taken for that date. Pick another.",
+          "Already Booked",
+          "This slot is taken for that date. Pick another."
         );
       else Alert.alert("Error", error.message);
       return;
@@ -552,34 +575,123 @@ export default function ResidentHome() {
   };
 
   const payDue = async (due: Due) => {
-  if (payingId) return;
-  setPayingId(due.id);
-  try {
-    const { error } = await supabase.from('dues').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', due.id);
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
+    if (payingId) return;
+    setPayingId(due.id);
+    try {
+      const paidTimestamp = new Date().toISOString();
+      const { error } = await supabase
+        .from("dues")
+        .update({ status: "paid", paid_at: paidTimestamp })
+        .eq("id", due.id);
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+      setSelectedReceiptDue({
+        ...due,
+        status: "paid",
+        paid_at: paidTimestamp,
+      });
+    } finally {
+      setPayingId(null);
     }
-    const receiptText =
-      `PORTL — PAYMENT RECEIPT\n` +
-      `------------------------------\n` +
-      `Flat: ${myProfile?.tower_name ?? ''} ${myProfile?.flat_number ?? ''}\n` +
-      `Resident: ${myProfile?.full_name ?? ''}\n` +
-      `Description: ${due.description}\n` +
-      `Amount: ₹${due.amount}\n` +
-      `Paid on: ${new Date().toLocaleString()}\n` +
-      `Status: PAID ✓\n` +
-      `------------------------------\n` +
-      `Thank you for your payment.`;
+  };
 
-    Alert.alert('Payment successful', 'Receipt ready to share.', [
-      { text: 'Close' },
-      { text: 'Share Receipt', onPress: () => Share.share({ message: receiptText }) },
-    ]);
-  } finally {
-    setPayingId(null);
-  }
-};
+  const exportPDFInvoice = async (due: Due) => {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const invNumber = `INV-${due.id.slice(0, 8).toUpperCase()}`;
+      const paidDate = due.paid_at
+        ? new Date(due.paid_at).toLocaleString("en-IN")
+        : new Date().toLocaleString("en-IN");
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 32px; color: #15131F; }
+            .header-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #4F3FE0; padding-bottom: 20px; }
+            .logo-title { font-size: 26px; font-weight: 800; color: #4F3FE0; letter-spacing: 0.5px; }
+            .sub-title { font-size: 13px; text-transform: uppercase; color: #6B6878; font-weight: 700; margin-top: 4px; }
+            .badge-paid { background-color: #E9F8EF; color: #1E9E5A; border: 1px solid #1E9E5A; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 13px; }
+            .info-grid { display: flex; justify-content: space-between; margin-top: 30px; }
+            .info-col { flex: 1; }
+            .label { font-size: 11px; font-weight: 700; color: #A6A3B3; text-transform: uppercase; letter-spacing: 0.5px; }
+            .value { font-size: 15px; font-weight: 700; color: #15131F; margin-top: 4px; }
+            .value-sub { font-size: 13px; color: #6B6878; font-weight: 500; margin-top: 2px; }
+            .items-table { width: 100%; border-collapse: collapse; margin-top: 35px; }
+            .items-table th { background-color: #EFECFD; color: #4F3FE0; text-align: left; padding: 12px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; border-radius: 6px; }
+            .items-table td { padding: 16px; border-bottom: 1px solid #ECEAF2; font-size: 14px; }
+            .total-card { background-color: #F5F4F9; border-radius: 14px; padding: 20px; margin-top: 30px; text-align: right; }
+            .total-label { font-size: 12px; color: #6B6878; font-weight: 600; text-transform: uppercase; }
+            .total-val { font-size: 28px; font-weight: 800; color: #4F3FE0; margin-top: 4px; }
+            .footer-note { margin-top: 50px; text-align: center; font-size: 11px; color: #A6A3B3; border-top: 1px dashed #ECEAF2; padding-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="header-bar">
+            <div>
+              <div class="logo-title">PORTL SOCIETY SERVICES</div>
+              <div class="sub-title">Official Digital Tax Receipt</div>
+            </div>
+            <div class="badge-paid">PAID ✓</div>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-col">
+              <div class="label">Billed To</div>
+              <div class="value">${myProfile?.full_name ?? "Resident"}</div>
+              <div class="value-sub">${myProfile?.tower_name ? myProfile.tower_name + " · " : ""}Flat ${myProfile?.flat_number ?? "N/A"}</div>
+            </div>
+            <div class="info-col" style="text-align: right;">
+              <div class="label">Receipt Reference</div>
+              <div class="value">${invNumber}</div>
+              <div class="value-sub">Date: ${paidDate}</div>
+            </div>
+          </div>
+
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Payment Term</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>${due.description}</b></td>
+                <td>Due by ${due.due_date}</td>
+                <td style="text-align: right; font-weight: 700;">₹${due.amount}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="total-card">
+            <div class="total-label">Total Amount Paid</div>
+            <div class="total-val">₹${due.amount}</div>
+          </div>
+
+          <div class="footer-note">
+            This digital receipt is generated electronically by PORTL Society Management Systems.<br/>
+            Valid proof of transaction. No physical signature required.
+          </div>
+        </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      await Sharing.shareAsync(uri, { UTI: ".pdf", mimeType: "application/pdf" });
+    } catch {
+      Alert.alert("Error", "Could not generate invoice PDF.");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   const onDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === "ios");
     if (selectedDate) setBookingDate(selectedDate.toISOString().split("T")[0]);
@@ -603,18 +715,19 @@ export default function ResidentHome() {
     : pastRequests.slice(0, 5);
   const visibleNotices = showAllNotices ? notices : notices.slice(0, 5);
   const visiblePolls = showAllPolls ? polls : polls.slice(0, 3);
+
   const ticketStatusColor = (status: string) =>
     status === "resolved"
       ? SUCCESS
       : status === "in_progress"
-        ? GOLD
-        : INK_MUTED;
+      ? GOLD
+      : INK_MUTED;
   const ticketStatusBg = (status: string) =>
     status === "resolved"
       ? SUCCESS_BG
       : status === "in_progress"
-        ? "#FBF3E4"
-        : INPUT_BG;
+      ? "#FBF3E4"
+      : INPUT_BG;
 
   const inputTheme = {
     colors: {
@@ -628,7 +741,7 @@ export default function ResidentHome() {
 
   const firstName = myProfile?.full_name?.split(" ")[0] ?? "there";
   const openTicketsCount = tickets.filter(
-    (t) => t.status !== "resolved",
+    (t) => t.status !== "resolved"
   ).length;
   const hour = new Date().getHours();
   const greeting =
@@ -644,10 +757,11 @@ export default function ResidentHome() {
 
   return (
     <View style={styles.screen}>
-      <Pressable style={styles.sosFab} onPress={() => setSosOpen(true)}>
+      {/* Compact Top SOS Button */}
+      <Pressable style={[styles.sosFab, { top: insets.top + 10 }]} onPress={() => setSosOpen(true)}>
         <IconButton
           icon="alert-octagon"
-          size={24}
+          size={16}
           iconColor="#fff"
           style={{ margin: 0 }}
         />
@@ -812,17 +926,20 @@ export default function ResidentHome() {
                 </Pressable>
               </View>
               {latestNotice ? (
-                <View style={[styles.card, { marginBottom: 20 }]}>
+                <Pressable
+                  style={[styles.card, { marginBottom: 20 }]}
+                  onPress={() => setSelectedNotice(latestNotice)}
+                >
                   <View style={{ padding: 16 }}>
                     <Text style={styles.visitorName}>{latestNotice.title}</Text>
                     <Text style={styles.noticeBody} numberOfLines={2}>
                       {latestNotice.body}
                     </Text>
                     <Text style={styles.metaFaint}>
-                      {new Date(latestNotice.created_at).toLocaleDateString()}
+                      Published: {new Date(latestNotice.created_at).toLocaleDateString()} · Tap to read
                     </Text>
                   </View>
-                </View>
+                </Pressable>
               ) : (
                 <Text style={[styles.empty, { marginBottom: 20 }]}>
                   No notices yet
@@ -972,7 +1089,7 @@ export default function ResidentHome() {
                 scrollEnabled={false}
                 ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
                 renderItem={({ item }) => (
-                  <View style={styles.card}>
+                  <Pressable style={styles.card} onPress={() => setSelectedVisitor(item)}>
                     <View style={{ padding: 16 }}>
                       <View style={styles.rowWithImage}>
                         {item.visitors?.photo_url ? (
@@ -993,9 +1110,7 @@ export default function ResidentHome() {
                           </Text>
                           <Text style={styles.meta}>
                             {item.visitors?.visitor_type}
-                            {item.visitors?.phone
-                              ? ` · ${item.visitors.phone}`
-                              : ""}
+                            {item.visitors?.phone ? ` · ${item.visitors.phone}` : ""}
                           </Text>
                         </View>
                       </View>
@@ -1017,7 +1132,7 @@ export default function ResidentHome() {
                         Approve
                       </Button>
                     </View>
-                  </View>
+                  </Pressable>
                 )}
               />
 
@@ -1028,7 +1143,7 @@ export default function ResidentHome() {
                   style={styles.sectionIcon}
                   color={ACCENT}
                 />
-                <Text style={styles.sectionTitle}>History</Text>
+                <Text style={styles.sectionTitle}>Visitor History</Text>
               </View>
               {pastRequests.length === 0 && (
                 <Text style={styles.empty}>No visitor history yet</Text>
@@ -1038,7 +1153,7 @@ export default function ResidentHome() {
                 keyExtractor={(item) => item.id}
                 scrollEnabled={false}
                 renderItem={({ item }) => (
-                  <View style={styles.historyRow}>
+                  <Pressable style={styles.compactRow} onPress={() => setSelectedVisitor(item)}>
                     {item.visitors?.photo_url ? (
                       <Image
                         source={{ uri: item.visitors.photo_url }}
@@ -1052,28 +1167,73 @@ export default function ResidentHome() {
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.historyName}>
-                        {item.visitors?.name}
-                      </Text>
+                      <View style={styles.row}>
+                        <Text style={styles.historyName}>
+                          {item.visitors?.name}
+                        </Text>
+                        <Chip
+                          compact
+                          textStyle={{
+                            fontSize: 11,
+                            fontWeight: "600",
+                            color: item.status === "approved" ? SUCCESS : DANGER,
+                          }}
+                          style={{
+                            backgroundColor:
+                              item.status === "approved" ? SUCCESS_BG : DANGER_BG,
+                          }}
+                        >
+                          {item.pre_approved ? "pre-approved" : item.status}
+                        </Chip>
+                      </View>
+
                       <Text style={styles.metaFaint}>
-                        {new Date(item.created_at).toLocaleDateString()}
+                        {new Date(item.created_at).toLocaleDateString()} · {item.visitors?.visitor_type}
                       </Text>
+
+                      {(item.entry_time || item.exit_time) && (
+                        <View style={styles.timeRow}>
+                          {item.entry_time && (
+                            <Text style={styles.timeTagText}>
+                              In: {new Date(item.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </Text>
+                          )}
+                          {item.exit_time && (
+                            <Text style={[styles.timeTagText, { color: INK_MUTED }]}>
+                              Out: {new Date(item.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+
+                      {item.otp_code && item.status === "approved" && (
+                        <View style={styles.otpActionRow}>
+                          <View style={styles.otpBadgeContainer}>
+                            <Text style={styles.otpBadgeText}>
+                              Passcode: {item.otp_code}
+                            </Text>
+                          </View>
+
+                          <IconButton
+                            icon="content-copy"
+                            size={16}
+                            iconColor={ACCENT}
+                            style={{ margin: 0 }}
+                            onPress={() => copyToClipboard(item.otp_code!)}
+                          />
+                          <IconButton
+                            icon="share-variant"
+                            size={16}
+                            iconColor={ACCENT}
+                            style={{ margin: 0 }}
+                            onPress={() =>
+                              sharePasscode(item.visitors?.name ?? "Guest", item.otp_code!)
+                            }
+                          />
+                        </View>
+                      )}
                     </View>
-                    <Chip
-                      compact
-                      textStyle={{
-                        fontSize: 11,
-                        fontWeight: "600",
-                        color: item.status === "approved" ? SUCCESS : DANGER,
-                      }}
-                      style={{
-                        backgroundColor:
-                          item.status === "approved" ? SUCCESS_BG : DANGER_BG,
-                      }}
-                    >
-                      {item.pre_approved ? "pre-approved" : item.status}
-                    </Chip>
-                  </View>
+                  </Pressable>
                 )}
               />
               {pastRequests.length > 5 && (
@@ -1109,7 +1269,7 @@ export default function ResidentHome() {
                     style={{ backgroundColor: ACCENT_SOFT }}
                     color={ACCENT}
                   />
-                  <Text style={styles.empty}>No notices yet</Text>
+                  <Text style={styles.empty}>No notices published yet</Text>
                 </View>
               )}
               <FlatList
@@ -1118,15 +1278,17 @@ export default function ResidentHome() {
                 scrollEnabled={false}
                 ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
                 renderItem={({ item }) => (
-                  <View style={styles.card}>
+                  <Pressable style={styles.card} onPress={() => setSelectedNotice(item)}>
                     <View style={{ padding: 16 }}>
                       <Text style={styles.visitorName}>{item.title}</Text>
-                      <Text style={styles.noticeBody}>{item.body}</Text>
+                      <Text style={styles.noticeBody} numberOfLines={2}>
+                        {item.body}
+                      </Text>
                       <Text style={styles.metaFaint}>
                         {new Date(item.created_at).toLocaleString()}
                       </Text>
                     </View>
-                  </View>
+                  </Pressable>
                 )}
               />
               {notices.length > 5 && (
@@ -1162,7 +1324,7 @@ export default function ResidentHome() {
                     style={{ backgroundColor: ACCENT_SOFT }}
                     color={ACCENT}
                   />
-                  <Text style={styles.empty}>No polls yet</Text>
+                  <Text style={styles.empty}>No active polls</Text>
                 </View>
               )}
               {visiblePolls.map((poll) => (
@@ -1188,7 +1350,7 @@ export default function ResidentHome() {
                       </View>
                     ))}
                     {hasVoted(poll.id) && (
-                      <Text style={styles.votedLabel}>✓ You voted</Text>
+                      <Text style={styles.votedLabel}>✓ Vote Recorded</Text>
                     )}
                   </View>
                 </View>
@@ -1290,7 +1452,7 @@ export default function ResidentHome() {
                   style={styles.sectionIcon}
                   color={ACCENT}
                 />
-                <Text style={styles.sectionTitle}>My Tickets</Text>
+                <Text style={styles.sectionTitle}>My Support Tickets</Text>
               </View>
               {tickets.length === 0 && (
                 <Text style={styles.empty}>No tickets raised yet</Text>
@@ -1301,7 +1463,7 @@ export default function ResidentHome() {
                 scrollEnabled={false}
                 ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
                 renderItem={({ item }) => (
-                  <View style={styles.card}>
+                  <Pressable style={styles.card} onPress={() => setSelectedTicket(item)}>
                     <View style={{ padding: 16 }}>
                       <View style={styles.row}>
                         <Text style={styles.visitorName}>{item.category}</Text>
@@ -1319,12 +1481,14 @@ export default function ResidentHome() {
                           {item.status.replace("_", " ")}
                         </Chip>
                       </View>
-                      <Text style={styles.noticeBody}>{item.description}</Text>
+                      <Text style={styles.noticeBody} numberOfLines={2}>
+                        {item.description}
+                      </Text>
                       <Text style={styles.metaFaint}>
                         {new Date(item.created_at).toLocaleString()}
                       </Text>
                     </View>
-                  </View>
+                  </Pressable>
                 )}
               />
             </>
@@ -1348,7 +1512,7 @@ export default function ResidentHome() {
                 textColor={ACCENT}
                 style={[styles.dateButton]}
               >
-                {bookingDate ? `Date: ${bookingDate}` : "Pick a Date"}
+                {bookingDate ? `Selected Date: ${bookingDate}` : "Pick a Booking Date"}
               </Button>
               {showDatePicker && (
                 <DateTimePicker
@@ -1360,7 +1524,7 @@ export default function ResidentHome() {
                 />
               )}
               {amenities.length === 0 && (
-                <Text style={styles.empty}>No amenities available yet</Text>
+                <Text style={styles.empty}>No amenities available right now</Text>
               )}
               {amenities.map((amenity) => (
                 <View
@@ -1370,7 +1534,7 @@ export default function ResidentHome() {
                   <View style={{ padding: 16 }}>
                     <Text style={styles.visitorName}>{amenity.name}</Text>
                     <Text style={styles.meta}>
-                      Capacity: {amenity.capacity}
+                      Capacity Limit: {amenity.capacity} persons
                     </Text>
                     <View style={styles.slotWrap}>
                       {amenity.slots.map((slot) => (
@@ -1378,7 +1542,7 @@ export default function ResidentHome() {
                           key={slot}
                           onPress={() => handleBookSlot(amenity, slot)}
                           style={styles.slotChip}
-                          textStyle={{ fontSize: 12, color: INK }}
+                          textStyle={{ fontSize: 12, color: INK, fontWeight: '600' }}
                         >
                           {slot}
                         </Chip>
@@ -1395,10 +1559,10 @@ export default function ResidentHome() {
                   style={styles.sectionIcon}
                   color={ACCENT}
                 />
-                <Text style={styles.sectionTitle}>My Bookings</Text>
+                <Text style={styles.sectionTitle}>My Active Bookings</Text>
               </View>
               {myBookings.length === 0 && (
-                <Text style={styles.empty}>No bookings yet</Text>
+                <Text style={styles.empty}>No active slot bookings</Text>
               )}
               <FlatList
                 data={myBookings}
@@ -1422,7 +1586,7 @@ export default function ResidentHome() {
                         textColor={DANGER}
                         onPress={() => cancelMyBooking(item.id)}
                       >
-                        Cancel
+                        Cancel Booking
                       </Button>
                     </View>
                   </View>
@@ -1507,31 +1671,34 @@ export default function ResidentHome() {
                 <Text style={styles.sectionTitle}>Payment History</Text>
               </View>
               {paidDues.length === 0 && (
-                <Text style={styles.empty}>No payments yet</Text>
+                <Text style={styles.empty}>No payment records found</Text>
               )}
               {paidDues.map((d) => (
-                <View key={d.id} style={styles.historyRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.historyName}>{d.description}</Text>
-                    <Text style={styles.metaFaint}>
-                      Paid{" "}
-                      {d.paid_at
-                        ? new Date(d.paid_at).toLocaleDateString()
-                        : ""}
-                    </Text>
+                <Pressable
+                  key={d.id}
+                  style={[styles.card, { marginBottom: 10 }]}
+                  onPress={() => setSelectedReceiptDue(d)}
+                >
+                  <View style={{ padding: 16, flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.visitorName}>{d.description}</Text>
+                      <Text style={styles.metaFaint}>
+                        Paid {d.paid_at ? new Date(d.paid_at).toLocaleDateString() : ""} · Tap to view invoice
+                      </Text>
+                    </View>
+                    <Chip
+                      compact
+                      textStyle={{
+                        fontSize: 12,
+                        fontWeight: "700",
+                        color: SUCCESS,
+                      }}
+                      style={{ backgroundColor: SUCCESS_BG }}
+                    >
+                      ₹{d.amount}
+                    </Chip>
                   </View>
-                  <Chip
-                    compact
-                    textStyle={{
-                      fontSize: 11,
-                      fontWeight: "600",
-                      color: SUCCESS,
-                    }}
-                    style={{ backgroundColor: SUCCESS_BG }}
-                  >
-                    ₹{d.amount}
-                  </Chip>
-                </View>
+                </Pressable>
               ))}
             </>
           )}
@@ -1550,34 +1717,65 @@ export default function ResidentHome() {
                 </Text>
               </View>
               {staff.length === 0 && (
-                <Text style={styles.empty}>No entries yet</Text>
+                <View style={styles.emptyState}>
+                  <Avatar.Icon
+                    size={44}
+                    icon="account-hard-hat"
+                    style={{ backgroundColor: ACCENT_SOFT }}
+                    color={ACCENT}
+                  />
+                  <Text style={styles.empty}>No directory entries available</Text>
+                </View>
               )}
               {staff.map((s) => (
-                <View key={s.id} style={[styles.card, { marginBottom: 12 }]}>
-                  <View style={{ padding: 16 }}>
-                    <View style={styles.rowWithImage}>
-                      {s.photo_url ? (
-                        <Image
-                          source={{ uri: s.photo_url }}
-                          style={styles.thumbSmall}
-                        />
-                      ) : (
-                        <View style={styles.thumbPlaceholderSmall}>
-                          <Text style={styles.thumbInitialSmall}>
-                            {s.name[0]?.toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      <View>
-                        <Text style={styles.visitorName}>{s.name}</Text>
-                        <Text style={styles.meta}>
-                          {s.service_type}
-                          {s.phone ? ` · ${s.phone}` : ""}
+                <Pressable
+                  key={s.id}
+                  style={[styles.card, { marginBottom: 12 }]}
+                  onPress={() => setSelectedStaff(s)}
+                >
+                  <View style={styles.staffCardContent}>
+                    {s.photo_url ? (
+                      <Image
+                        source={{ uri: s.photo_url }}
+                        style={styles.staffImage}
+                      />
+                    ) : (
+                      <View style={styles.staffAvatarPlaceholder}>
+                        <Text style={styles.staffAvatarInitial}>
+                          {s.name[0]?.toUpperCase() ?? "S"}
                         </Text>
                       </View>
+                    )}
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.staffNameText} numberOfLines={1}>
+                        {s.name}
+                      </Text>
+
+                      <View style={styles.staffTagRow}>
+                        <View style={styles.staffServiceBadge}>
+                          <Text style={styles.staffServiceText}>
+                            {s.service_type}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.staffPhoneText}>
+                        {s.phone ? `📞 ${s.phone}` : "No phone provided"}
+                      </Text>
                     </View>
+
+                    {s.phone && (
+                      <IconButton
+                        icon="phone"
+                        size={20}
+                        iconColor="#fff"
+                        style={styles.staffCallIcon}
+                        onPress={() => callPhone(s.phone)}
+                      />
+                    )}
                   </View>
-                </View>
+                </Pressable>
               ))}
             </>
           )}
@@ -1586,6 +1784,7 @@ export default function ResidentHome() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* BOTTOM NAVIGATION */}
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 10 }]}>
         <Pressable
           style={styles.navItem}
@@ -1721,6 +1920,427 @@ export default function ResidentHome() {
         </Pressable>
       </View>
 
+      {/* VISITOR CARD DETAIL MODAL */}
+      <Modal
+        visible={!!selectedVisitor}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedVisitor(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdropCenter}
+          onPress={() => setSelectedVisitor(null)}
+        >
+          <Pressable style={styles.receiptCardModal} onPress={() => {}}>
+            {selectedVisitor && (
+              <>
+                <View style={styles.modalTopHeader}>
+                  <Text style={styles.modalTitle}>Visitor Details</Text>
+                  <IconButton
+                    icon="close"
+                    size={22}
+                    iconColor={INK}
+                    onPress={() => setSelectedVisitor(null)}
+                    style={{ margin: 0 }}
+                  />
+                </View>
+
+                <View style={{ alignItems: "center", marginVertical: 8 }}>
+                  {selectedVisitor.visitors?.photo_url ? (
+                    <Image
+                      source={{ uri: selectedVisitor.visitors.photo_url }}
+                      style={{ width: 80, height: 80, borderRadius: 40 }}
+                    />
+                  ) : (
+                    <Avatar.Text
+                      size={80}
+                      label={selectedVisitor.visitors?.name?.[0]?.toUpperCase() ?? "?"}
+                      style={{ backgroundColor: ACCENT }}
+                    />
+                  )}
+                  <Text style={[styles.visitorName, { fontSize: 18, marginTop: 10 }]}>
+                    {selectedVisitor.visitors?.name}
+                  </Text>
+                  <Text style={styles.meta}>
+                    {selectedVisitor.visitors?.visitor_type}
+                  </Text>
+                </View>
+
+                <Divider style={{ marginVertical: 12, backgroundColor: BORDER }} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Status</Text>
+                  <Text style={[styles.receiptValue, { color: statusColor(selectedVisitor.status) }]}>
+                    {selectedVisitor.pre_approved ? "Pre-Approved" : selectedVisitor.status.toUpperCase()}
+                  </Text>
+                </View>
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Requested On</Text>
+                  <Text style={styles.receiptValue}>
+                    {new Date(selectedVisitor.created_at).toLocaleString()}
+                  </Text>
+                </View>
+
+                {selectedVisitor.entry_time && (
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptLabel}>Entry Time</Text>
+                    <Text style={styles.receiptValue}>
+                      {new Date(selectedVisitor.entry_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                )}
+
+                {selectedVisitor.exit_time && (
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptLabel}>Exit Time</Text>
+                    <Text style={styles.receiptValue}>
+                      {new Date(selectedVisitor.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                )}
+
+                {selectedVisitor.otp_code && (
+                  <View style={[styles.cardOtpBoxModal, { marginTop: 12 }]}>
+                    <Text style={styles.receiptLabel}>Passcode:</Text>
+                    <Text style={styles.otpModalCode}>{selectedVisitor.otp_code}</Text>
+                  </View>
+                )}
+
+                <Button
+                  mode="contained"
+                  buttonColor={ACCENT}
+                  textColor="#fff"
+                  style={{ marginTop: 16, borderRadius: 12 }}
+                  onPress={() => setSelectedVisitor(null)}
+                >
+                  Close
+                </Button>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* NOTICE FULL DETAIL MODAL */}
+      <Modal
+        visible={!!selectedNotice}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedNotice(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdropCenter}
+          onPress={() => setSelectedNotice(null)}
+        >
+          <Pressable style={styles.receiptCardModal} onPress={() => {}}>
+            {selectedNotice && (
+              <>
+                <View style={styles.modalTopHeader}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Avatar.Icon
+                      size={24}
+                      icon="bullhorn"
+                      style={{ backgroundColor: ACCENT_SOFT }}
+                      color={ACCENT}
+                    />
+                    <Text style={styles.modalTitle}>Society Announcement</Text>
+                  </View>
+                  <IconButton
+                    icon="close"
+                    size={22}
+                    iconColor={INK}
+                    onPress={() => setSelectedNotice(null)}
+                    style={{ margin: 0 }}
+                  />
+                </View>
+
+                <Text style={[styles.visitorName, { fontSize: 18, marginTop: 8 }]}>
+                  {selectedNotice.title}
+                </Text>
+
+                <Text style={styles.metaFaint}>
+                  Published: {new Date(selectedNotice.created_at).toLocaleString("en-IN")}
+                </Text>
+
+                <Divider style={{ marginVertical: 14, backgroundColor: BORDER }} />
+
+                <ScrollView style={{ maxHeight: 220 }}>
+                  <Text style={[styles.noticeBody, { fontSize: 14, lineHeight: 22 }]}>
+                    {selectedNotice.body}
+                  </Text>
+                </ScrollView>
+
+                <Button
+                  mode="contained"
+                  buttonColor={ACCENT}
+                  textColor="#fff"
+                  style={{ marginTop: 16, borderRadius: 12 }}
+                  onPress={() => setSelectedNotice(null)}
+                >
+                  Close Notice
+                </Button>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* STAFF FULL DETAIL MODAL */}
+      <Modal
+        visible={!!selectedStaff}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedStaff(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdropCenter}
+          onPress={() => setSelectedStaff(null)}
+        >
+          <Pressable style={styles.receiptCardModal} onPress={() => {}}>
+            {selectedStaff && (
+              <>
+                <View style={styles.modalTopHeader}>
+                  <Text style={styles.modalTitle}>Staff Profile</Text>
+                  <IconButton
+                    icon="close"
+                    size={22}
+                    iconColor={INK}
+                    onPress={() => setSelectedStaff(null)}
+                    style={{ margin: 0 }}
+                  />
+                </View>
+
+                <View style={{ alignItems: "center", marginVertical: 8 }}>
+                  {selectedStaff.photo_url ? (
+                    <Image
+                      source={{ uri: selectedStaff.photo_url }}
+                      style={{ width: 84, height: 84, borderRadius: 42 }}
+                    />
+                  ) : (
+                    <Avatar.Text
+                      size={84}
+                      label={selectedStaff.name[0]?.toUpperCase() ?? "S"}
+                      style={{ backgroundColor: ACCENT }}
+                    />
+                  )}
+                  <Text style={[styles.visitorName, { fontSize: 18, marginTop: 10 }]}>
+                    {selectedStaff.name}
+                  </Text>
+                  <Chip
+                    compact
+                    textStyle={{ color: ACCENT, fontWeight: "700", fontSize: 12 }}
+                    style={{ backgroundColor: ACCENT_SOFT, marginTop: 6 }}
+                  >
+                    {selectedStaff.service_type}
+                  </Chip>
+                </View>
+
+                <Divider style={{ marginVertical: 14, backgroundColor: BORDER }} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Contact Number</Text>
+                  <Text style={styles.receiptValue}>
+                    {selectedStaff.phone ?? "Not Provided"}
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
+                  <Button
+                    mode="outlined"
+                    textColor={INK_MUTED}
+                    style={{ flex: 1, borderColor: BORDER, borderRadius: 12 }}
+                    onPress={() => setSelectedStaff(null)}
+                  >
+                    Close
+                  </Button>
+                  {selectedStaff.phone && (
+                    <Button
+                      mode="contained"
+                      buttonColor={SUCCESS}
+                      textColor="#fff"
+                      icon="phone"
+                      style={{ flex: 1.2, borderRadius: 12 }}
+                      onPress={() => callPhone(selectedStaff.phone)}
+                    >
+                      Call Staff
+                    </Button>
+                  )}
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* TICKET FULL DETAIL MODAL */}
+      <Modal
+        visible={!!selectedTicket}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedTicket(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdropCenter}
+          onPress={() => setSelectedTicket(null)}
+        >
+          <Pressable style={styles.receiptCardModal} onPress={() => {}}>
+            {selectedTicket && (
+              <>
+                <View style={styles.modalTopHeader}>
+                  <Text style={styles.modalTitle}>Ticket Details</Text>
+                  <IconButton
+                    icon="close"
+                    size={22}
+                    iconColor={INK}
+                    onPress={() => setSelectedTicket(null)}
+                    style={{ margin: 0 }}
+                  />
+                </View>
+
+                <View style={styles.row}>
+                  <Text style={[styles.visitorName, { fontSize: 18 }]}>
+                    Category: {selectedTicket.category}
+                  </Text>
+                  <Chip
+                    compact
+                    textStyle={{
+                      color: ticketStatusColor(selectedTicket.status),
+                      fontWeight: "700",
+                      fontSize: 12,
+                    }}
+                    style={{ backgroundColor: ticketStatusBg(selectedTicket.status) }}
+                  >
+                    {selectedTicket.status.replace("_", " ")}
+                  </Chip>
+                </View>
+
+                <Text style={styles.metaFaint}>
+                  Raised: {new Date(selectedTicket.created_at).toLocaleString()}
+                </Text>
+
+                <Divider style={{ marginVertical: 12, backgroundColor: BORDER }} />
+
+                <Text style={styles.fieldLabel}>Issue Description:</Text>
+                <ScrollView style={{ maxHeight: 180 }}>
+                  <Text style={[styles.noticeBody, { fontSize: 14 }]}>
+                    {selectedTicket.description}
+                  </Text>
+                </ScrollView>
+
+                <Button
+                  mode="contained"
+                  buttonColor={ACCENT}
+                  textColor="#fff"
+                  style={{ marginTop: 16, borderRadius: 12 }}
+                  onPress={() => setSelectedTicket(null)}
+                >
+                  Close
+                </Button>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* DIGITAL INVOICE MODAL WITH PDF GENERATION */}
+      <Modal
+        visible={!!selectedReceiptDue}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedReceiptDue(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdropCenter}
+          onPress={() => setSelectedReceiptDue(null)}
+        >
+          <Pressable style={styles.receiptCardModal} onPress={() => {}}>
+            <View style={styles.receiptHeader}>
+              <Avatar.Icon
+                size={40}
+                icon="check-circle"
+                style={{ backgroundColor: SUCCESS_BG }}
+                color={SUCCESS}
+              />
+              <Text style={styles.receiptHeaderTitle}>PORTL SERVICES</Text>
+              <Text style={styles.receiptHeaderSubtitle}>
+                Official Payment Invoice
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 14, backgroundColor: BORDER }} />
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Resident</Text>
+              <Text style={styles.receiptValue}>
+                {myProfile?.full_name ?? "Resident"}
+              </Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Flat</Text>
+              <Text style={styles.receiptValue}>
+                {myProfile?.tower_name ? `${myProfile.tower_name} · ` : ""}
+                {myProfile?.flat_number ?? "N/A"}
+              </Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Description</Text>
+              <Text style={styles.receiptValue}>
+                {selectedReceiptDue?.description}
+              </Text>
+            </View>
+
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Date Paid</Text>
+              <Text style={styles.receiptValue}>
+                {selectedReceiptDue?.paid_at
+                  ? new Date(selectedReceiptDue.paid_at).toLocaleString("en-IN")
+                  : "Paid"}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 14, backgroundColor: BORDER }} />
+
+            <View style={styles.receiptRow}>
+              <Text style={[styles.receiptLabel, { fontSize: 16 }]}>
+                Total Paid
+              </Text>
+              <Text style={styles.receiptTotalAmount}>
+                ₹{selectedReceiptDue?.amount}
+              </Text>
+            </View>
+
+            <View style={styles.receiptActions}>
+              <Button
+                mode="outlined"
+                textColor={INK_MUTED}
+                style={{ flex: 1, borderColor: BORDER, borderRadius: 12 }}
+                onPress={() => setSelectedReceiptDue(null)}
+              >
+                Close
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor={ACCENT}
+                textColor="#fff"
+                icon="file-pdf-box"
+                loading={pdfLoading}
+                disabled={pdfLoading}
+                style={{ flex: 1.2, borderRadius: 12 }}
+                onPress={() => {
+                  if (selectedReceiptDue) exportPDFInvoice(selectedReceiptDue);
+                }}
+              >
+                Export PDF
+              </Button>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* MORE MENU BOTTOM SHEET */}
       <Modal
         visible={moreOpen}
         transparent
@@ -1728,7 +2348,7 @@ export default function ResidentHome() {
         onRequestClose={() => setMoreOpen(false)}
       >
         <Pressable
-          style={styles.sheetBackdrop}
+          style={styles.sheetBackdropBottom}
           onPress={() => setMoreOpen(false)}
         >
           <Pressable style={styles.sheetCard} onPress={() => {}}>
@@ -1765,6 +2385,7 @@ export default function ResidentHome() {
         </Pressable>
       </Modal>
 
+      {/* PROFILE MODAL */}
       <Modal
         visible={profileOpen}
         animationType="slide"
@@ -1860,6 +2481,7 @@ export default function ResidentHome() {
         </View>
       </Modal>
 
+      {/* SOS MODAL */}
       <Modal
         visible={sosOpen}
         transparent
@@ -1867,7 +2489,7 @@ export default function ResidentHome() {
         onRequestClose={() => setSosOpen(false)}
       >
         <Pressable
-          style={styles.sheetBackdrop}
+          style={styles.sheetBackdropBottom}
           onPress={() => setSosOpen(false)}
         >
           <Pressable style={styles.sheetCard} onPress={() => {}}>
@@ -2004,6 +2626,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
   },
+  fieldLabel: { fontSize: 13, fontWeight: "700", color: INK, marginBottom: 6 },
   inputWrap: {
     backgroundColor: INPUT_BG,
     borderRadius: 14,
@@ -2092,15 +2715,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   thumbInitialSmall: { color: "white", fontSize: 15, fontWeight: "700" },
-  historyRow: {
+
+  // Improved Clean Staff Cards
+  staffCardContent: {
+    padding: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    gap: 12,
   },
-  historyName: { fontSize: 14, fontWeight: "600", color: INK },
+  staffImage: { width: 50, height: 50, borderRadius: 25 },
+  staffAvatarPlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: ACCENT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  staffAvatarInitial: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  staffNameText: { fontSize: 16, fontWeight: "700", color: INK },
+  staffTagRow: { flexDirection: "row", marginTop: 4, marginBottom: 2 },
+  staffServiceBadge: {
+    backgroundColor: ACCENT_SOFT,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  staffServiceText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: ACCENT,
+    textTransform: "lowercase",
+  },
+  staffPhoneText: { fontSize: 12, color: INK_MUTED, marginTop: 2, fontWeight: "500" },
+  staffCallIcon: {
+    backgroundColor: SUCCESS,
+    margin: 0,
+    borderRadius: 20,
+  },
+
+  compactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 12,
+    marginBottom: 8,
+  },
+  historyName: { fontSize: 14, fontWeight: "700", color: INK },
   noticeBody: { color: INK_MUTED, marginTop: 4, lineHeight: 20 },
   pollOptionRow: {
     flexDirection: "row",
@@ -2134,6 +2799,98 @@ const styles = StyleSheet.create({
   },
   dueAmount: { fontSize: 16, fontWeight: "700", color: ACCENT },
 
+  timeRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  timeTagText: { fontSize: 11, fontWeight: "700", color: ACCENT },
+
+  otpActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 4,
+  },
+  otpBadgeContainer: {
+    backgroundColor: ACCENT_SOFT,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  otpBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: ACCENT,
+  },
+
+  modalTopHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  modalTitle: { fontSize: 17, fontWeight: "800", color: INK },
+
+  receiptCardModal: {
+    backgroundColor: CARD_BG,
+    borderRadius: 24,
+    marginHorizontal: 20,
+    padding: 20,
+    alignSelf: "center",
+    width: "90%",
+  },
+  receiptHeader: {
+    alignItems: "center",
+    gap: 4,
+  },
+  receiptHeaderTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: INK,
+    marginTop: 6,
+  },
+  receiptHeaderSubtitle: {
+    fontSize: 12,
+    color: INK_MUTED,
+  },
+  receiptRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+  },
+  receiptLabel: {
+    fontSize: 13,
+    color: INK_MUTED,
+    fontWeight: "500",
+  },
+  receiptValue: {
+    fontSize: 13,
+    color: INK,
+    fontWeight: "700",
+  },
+  receiptTotalAmount: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: ACCENT,
+  },
+  receiptActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
+
+  cardOtpBoxModal: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: INPUT_BG,
+    padding: 12,
+    borderRadius: 12,
+  },
+  otpModalCode: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: ACCENT,
+  },
+
   bottomNav: {
     position: "absolute",
     left: 0,
@@ -2159,17 +2916,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   navIconWrapActive: { backgroundColor: ACCENT_SOFT },
-  navDot: {
-    position: "absolute",
-    top: 2,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: DANGER,
-    borderWidth: 1.5,
-    borderColor: CARD_BG,
-  },
   navBadge: {
     position: "absolute",
     top: -2,
@@ -2197,10 +2943,16 @@ const styles = StyleSheet.create({
   },
   navAvatarInitial: { color: "#fff", fontSize: 12, fontWeight: "700" },
 
-  sheetBackdrop: {
+  // Modal Backdrop Helpers
+  sheetBackdropBottom: {
     flex: 1,
     backgroundColor: "rgba(21,19,31,0.35)",
     justifyContent: "flex-end",
+  },
+  sheetBackdropCenter: {
+    flex: 1,
+    backgroundColor: "rgba(21,19,31,0.45)",
+    justifyContent: "center",
   },
   sheetCard: {
     backgroundColor: CARD_BG,
@@ -2348,29 +3100,29 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   logoutButtonText: { color: DANGER, fontSize: 15, fontWeight: "700" },
+
   sosFab: {
     position: "absolute",
-    top: 60,
     right: 16,
     zIndex: 100,
     backgroundColor: DANGER,
-    borderRadius: 30,
+    borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 4,
-    paddingRight: 14,
-    paddingVertical: 4,
+    paddingLeft: 2,
+    paddingRight: 10,
+    paddingVertical: 2,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   sosFabText: {
     color: "#fff",
     fontWeight: "800",
-    fontSize: 13,
-    marginLeft: -6,
+    fontSize: 12,
+    marginLeft: -4,
   },
   sosOptionRow: {
     flexDirection: "row",
