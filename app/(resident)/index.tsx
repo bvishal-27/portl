@@ -10,6 +10,7 @@ import {
   Image,
   Modal,
   Pressable,
+  Share,
   KeyboardAvoidingView,
 } from "react-native";
 import {
@@ -430,60 +431,51 @@ export default function ResidentHome() {
   };
 
   const handlePreApprove = async () => {
-    if (guestLoading) return;
-    if (!guestName || !flatId) {
-      Alert.alert("Missing info", "Enter a guest name");
+  if (guestLoading) return;
+  if (!guestName || !flatId) {
+    Alert.alert('Missing info', 'Enter a guest name');
+    return;
+  }
+  if (guestName.trim().length < 3 || guestName.trim().length > 15) {
+    Alert.alert('Invalid name', 'Guest name must be between 3 and 15 characters');
+    return;
+  }
+  if (guestPhone.trim().length > 0 && !/^\d{10}$/.test(guestPhone.trim())) {
+    Alert.alert('Invalid phone', 'Phone number must be exactly 10 digits');
+    return;
+  }
+  setGuestLoading(true);
+  try {
+    let photoUrl: string | null = null;
+    if (guestPhotoUri) photoUrl = await uploadGuestPhoto(guestPhotoUri);
+    const { data: visitor, error: visitorError } = await supabase
+      .from('visitors')
+      .insert({ name: guestName, phone: guestPhone, visitor_type: 'guest', photo_url: photoUrl })
+      .select()
+      .single();
+    if (visitorError || !visitor) {
+      Alert.alert('Error', visitorError?.message ?? 'Could not create guest');
       return;
     }
-    if (guestName.trim().length < 3 || guestName.trim().length > 15) {
-      Alert.alert(
-        "Invalid name",
-        "Guest name must be between 3 and 15 characters",
-      );
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const { error: requestError } = await supabase.from('visitor_requests').insert({
+      visitor_id: visitor.id, flat_id: flatId, status: 'approved', pre_approved: true, otp_code: otpCode,
+    });
+    if (requestError) {
+      Alert.alert('Error', requestError.message);
       return;
     }
-    if (guestPhone.trim().length > 0 && !/^\d{10}$/.test(guestPhone.trim())) {
-      Alert.alert("Invalid phone", "Phone number must be exactly 10 digits");
-      return;
-    }
-    setGuestLoading(true);
-    try {
-      let photoUrl: string | null = null;
-      if (guestPhotoUri) photoUrl = await uploadGuestPhoto(guestPhotoUri);
-      const { data: visitor, error: visitorError } = await supabase
-        .from("visitors")
-        .insert({
-          name: guestName,
-          phone: guestPhone,
-          visitor_type: "guest",
-          photo_url: photoUrl,
-        })
-        .select()
-        .single();
-      if (visitorError || !visitor) {
-        Alert.alert("Error", visitorError?.message ?? "Could not create guest");
-        return;
-      }
-      const { error: requestError } = await supabase
-        .from("visitor_requests")
-        .insert({
-          visitor_id: visitor.id,
-          flat_id: flatId,
-          status: "approved",
-          pre_approved: true,
-        });
-      if (requestError) {
-        Alert.alert("Error", requestError.message);
-        return;
-      }
-      Alert.alert("Pre-approved", `${guestName} is pre-approved.`);
-      setGuestName("");
-      setGuestPhone("");
-      setGuestPhotoUri(null);
-    } finally {
-      setGuestLoading(false);
-    }
-  };
+    Alert.alert(
+      'Pre-approved',
+      `${guestName} is pre-approved.\n\nShare this code with your guest:\n\n${otpCode}\n\nGuard will verify entry using this code.`
+    );
+    setGuestName('');
+    setGuestPhone('');
+    setGuestPhotoUri(null);
+  } finally {
+    setGuestLoading(false);
+  }
+};
 
   const castVote = async (pollId: string, optionId: string) => {
     const { error } = await supabase
@@ -559,24 +551,35 @@ export default function ResidentHome() {
     fetchMyBookings();
   };
 
-  const payDue = async (dueId: string) => {
-    if (payingId) return;
-    setPayingId(dueId);
-    try {
-      const { error } = await supabase
-        .from("dues")
-        .update({ status: "paid", paid_at: new Date().toISOString() })
-        .eq("id", dueId);
-      if (error) {
-        Alert.alert("Error", error.message);
-        return;
-      }
-      Alert.alert("Payment successful", "This due has been marked as paid.");
-    } finally {
-      setPayingId(null);
+  const payDue = async (due: Due) => {
+  if (payingId) return;
+  setPayingId(due.id);
+  try {
+    const { error } = await supabase.from('dues').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', due.id);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
     }
-  };
+    const receiptText =
+      `PORTL — PAYMENT RECEIPT\n` +
+      `------------------------------\n` +
+      `Flat: ${myProfile?.tower_name ?? ''} ${myProfile?.flat_number ?? ''}\n` +
+      `Resident: ${myProfile?.full_name ?? ''}\n` +
+      `Description: ${due.description}\n` +
+      `Amount: ₹${due.amount}\n` +
+      `Paid on: ${new Date().toLocaleString()}\n` +
+      `Status: PAID ✓\n` +
+      `------------------------------\n` +
+      `Thank you for your payment.`;
 
+    Alert.alert('Payment successful', 'Receipt ready to share.', [
+      { text: 'Close' },
+      { text: 'Share Receipt', onPress: () => Share.share({ message: receiptText }) },
+    ]);
+  } finally {
+    setPayingId(null);
+  }
+};
   const onDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === "ios");
     if (selectedDate) setBookingDate(selectedDate.toISOString().split("T")[0]);
@@ -1486,7 +1489,7 @@ export default function ResidentHome() {
                       textColor="#fff"
                       loading={payingId === d.id}
                       disabled={payingId === d.id}
-                      onPress={() => payDue(d.id)}
+                      onPress={() => payDue(d)}
                     >
                       Pay Now
                     </Button>

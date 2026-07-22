@@ -88,6 +88,14 @@ const statusBg = (status: string) => {
   return "#FBF3E4";
 };
 
+const isExpiredDelivery = (item: VisitorRequest) => {
+  if (item.visitors?.visitor_type !== "delivery") return false;
+  if (item.status !== "approved" || item.entry_time) return false;
+  const minutesSince =
+    (Date.now() - new Date(item.created_at).getTime()) / 60000;
+  return minutesSince > 30;
+};
+
 const VisitorCard = memo(function VisitorCard({
   item,
   statusColor,
@@ -103,6 +111,8 @@ const VisitorCard = memo(function VisitorCard({
   markEntry: (id: string) => void;
   markExit: (id: string) => void;
 }) {
+  const expired = isExpiredDelivery(item);
+
   return (
     <View style={styles.card}>
       <View style={{ padding: 16 }}>
@@ -127,13 +137,19 @@ const VisitorCard = memo(function VisitorCard({
               <Chip
                 compact
                 textStyle={{
-                  color: statusColor(item.status),
+                  color: expired ? DANGER : statusColor(item.status),
                   fontWeight: "600",
                   fontSize: 12,
                 }}
-                style={{ backgroundColor: statusBg(item.status) }}
+                style={{
+                  backgroundColor: expired ? DANGER_BG : statusBg(item.status),
+                }}
               >
-                {item.pre_approved ? "pre-approved" : item.status}
+                {expired
+                  ? "expired"
+                  : item.pre_approved
+                  ? "pre-approved"
+                  : item.status}
               </Chip>
             </View>
             <Text style={styles.meta}>
@@ -171,12 +187,12 @@ const VisitorCard = memo(function VisitorCard({
           </View>
         </View>
       </View>
-      {(item.status === "approved" && !item.entry_time) ||
+      {(item.status === "approved" && !item.entry_time && !expired) ||
       (item.entry_time && !item.exit_time) ? (
         <View>
           <Divider style={{ backgroundColor: BORDER }} />
           <View style={styles.cardActions}>
-            {item.status === "approved" && !item.entry_time && (
+            {item.status === "approved" && !item.entry_time && !expired && (
               <Button
                 mode="contained"
                 icon="login"
@@ -218,6 +234,10 @@ export default function GuardHome() {
   const [flatNumber, setFlatNumber] = useState("");
   const [visitorType, setVisitorType] = useState("guest");
   const [customVisitorType, setCustomVisitorType] = useState("");
+
+  const [otpVerify, setOtpVerify] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -303,7 +323,7 @@ export default function GuardHome() {
     const { data, error } = await supabase
       .from("visitor_requests")
       .select(
-        "id, status, entry_time, exit_time, pre_approved, created_at, visitors(name, visitor_type, photo_url), flats(flat_number, tower_id)",
+        "id, status, entry_time, exit_time, pre_approved, created_at, visitors(name, visitor_type, photo_url), flats(flat_number, tower_id)"
       )
       .order("created_at", { ascending: false })
       .limit(100);
@@ -358,7 +378,7 @@ export default function GuardHome() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "visitor_requests" },
-        () => fetchRequests(),
+        () => fetchRequests()
       )
       .subscribe();
 
@@ -372,7 +392,7 @@ export default function GuardHome() {
           if (payload.eventType === "INSERT") {
             Alert.alert(
               "🚨 EMERGENCY SOS ALERT",
-              `New SOS trigger received! Check active alerts immediately.`,
+              `New SOS trigger received! Check active alerts immediately.`
             );
           }
         }
@@ -419,6 +439,35 @@ export default function GuardHome() {
     }
   };
 
+  const verifyOtp = async () => {
+    if (otpVerify.trim().length !== 6) {
+      Alert.alert("Invalid code", "Enter the 6-digit code");
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("visitor_requests")
+        .select("id, flat_id, visitors(name), flats(flat_number)")
+        .eq("otp_code", otpVerify.trim())
+        .eq("status", "approved")
+        .is("entry_time", null)
+        .single();
+
+      if (error || !data) {
+        Alert.alert("Not found", "No matching pre-approved guest with this code");
+        return;
+      }
+      Alert.alert(
+        "Guest Verified",
+        `${(data as any).visitors?.name} — Flat ${(data as any).flats?.flat_number}\n\nMark their entry from Live Requests.`
+      );
+      setOtpVerify("");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
   const handleRegisterVisitor = async () => {
     if (loading) return;
     if (!name || !flatNumber) {
@@ -428,7 +477,7 @@ export default function GuardHome() {
     if (name.trim().length < 3 || name.trim().length > 15) {
       Alert.alert(
         "Invalid name",
-        "Visitor name must be between 3 and 15 characters",
+        "Visitor name must be between 3 and 15 characters"
       );
       return;
     }
@@ -474,7 +523,7 @@ export default function GuardHome() {
       if (visitorError || !visitor) {
         Alert.alert(
           "Error",
-          visitorError?.message ?? "Could not create visitor",
+          visitorError?.message ?? "Could not create visitor"
         );
         setLoading(false);
         return;
@@ -503,12 +552,12 @@ export default function GuardHome() {
       setCustomVisitorType("");
       Alert.alert(
         "Request sent",
-        `${name}'s visit request was sent for approval`,
+        `${name}'s visit request was sent for approval`
       );
     } catch (err) {
       Alert.alert(
         "Something went wrong",
-        "Please check your connection and try again",
+        "Please check your connection and try again"
       );
     } finally {
       setLoading(false);
@@ -567,7 +616,7 @@ export default function GuardHome() {
     filtered = filtered.filter((r) =>
       r.flats?.flat_number
         ?.toLowerCase()
-        .includes(searchFlat.trim().toLowerCase()),
+        .includes(searchFlat.trim().toLowerCase())
     );
 
   filtered = [...filtered].sort((a, b) => {
@@ -591,16 +640,16 @@ export default function GuardHome() {
   const today = new Date().toDateString();
   const pendingCount = requests.filter((r) => r.status === "pending").length;
   const insideCount = requests.filter(
-    (r) => r.entry_time && !r.exit_time,
+    (r) => r.entry_time && !r.exit_time
   ).length;
   const entriesTodayCount = requests.filter(
-    (r) => r.entry_time && new Date(r.entry_time).toDateString() === today,
+    (r) => r.entry_time && new Date(r.entry_time).toDateString() === today
   ).length;
   const awaitingApproval = requests
     .filter((r) => r.status === "pending")
     .slice(0, 3);
   const awaitingEntry = requests
-    .filter((r) => r.status === "approved" && !r.entry_time)
+    .filter((r) => r.status === "approved" && !r.entry_time && !isExpiredDelivery(r))
     .slice(0, 3);
 
   const goToTab = (key: string) => {
@@ -928,6 +977,37 @@ export default function GuardHome() {
                 <Text style={styles.sectionTitle}>Register Visitor</Text>
               </View>
 
+              {/* OTP Verification UI */}
+              <View style={styles.inputWrap}>
+                <TextInput
+                  mode="flat"
+                  label="Verify guest by code (optional)"
+                  value={otpVerify}
+                  onChangeText={(t) =>
+                    setOtpVerify(t.replace(/\D/g, "").slice(0, 6))
+                  }
+                  keyboardType="numeric"
+                  maxLength={6}
+                  style={styles.input}
+                  underlineColor="transparent"
+                  activeUnderlineColor="transparent"
+                  textColor={INK}
+                  theme={inputTheme}
+                  cursorColor={ACCENT}
+                />
+              </View>
+              <Button
+                mode="outlined"
+                onPress={verifyOtp}
+                loading={otpLoading}
+                disabled={otpLoading}
+                textColor={ACCENT}
+                style={[styles.input, { borderColor: ACCENT }]}
+              >
+                Verify Code
+              </Button>
+              <Divider style={{ marginVertical: 16, backgroundColor: BORDER }} />
+
               <View style={styles.inputWrap}>
                 <TextInput
                   mode="flat"
@@ -987,7 +1067,7 @@ export default function GuardHome() {
                     .filter((r) =>
                       r.full_name
                         ?.toLowerCase()
-                        .includes(residentSearch.toLowerCase()),
+                        .includes(residentSearch.toLowerCase())
                     )
                     .slice(0, 5)
                     .map((r, idx) => {
@@ -1014,7 +1094,7 @@ export default function GuardHome() {
                   {residents.filter((r) =>
                     r.full_name
                       ?.toLowerCase()
-                      .includes(residentSearch.toLowerCase()),
+                      .includes(residentSearch.toLowerCase())
                   ).length === 0 && (
                     <Text style={styles.searchNoResults}>
                       No resident found
