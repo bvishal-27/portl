@@ -20,6 +20,21 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Register the Approve/Deny action buttons for visitor requests.
+// Must run before any notification with categoryId: 'VISITOR_APPROVAL' arrives.
+Notifications.setNotificationCategoryAsync("VISITOR_APPROVAL", [
+  {
+    identifier: "APPROVE_ACTION",
+    buttonTitle: "✅ Approve",
+    options: { opensAppToForeground: false },
+  },
+  {
+    identifier: "DENY_ACTION",
+    buttonTitle: "❌ Deny",
+    options: { isDestructive: true, opensAppToForeground: false },
+  },
+]);
+
 async function registerForPushNotifications(userId: string) {
   if (!Device.isDevice) {
     return;
@@ -103,7 +118,25 @@ export default function RootLayout() {
     const receivedSub = Notifications.addNotificationReceivedListener(() => {});
 
     const responseSub = Notifications.addNotificationResponseReceivedListener(
-      (response) => {},
+      async (response) => {
+        const actionId = response.actionIdentifier;
+        const visitorRequestId =
+          response.notification.request.content.data?.visitorRequestId;
+
+        if (!visitorRequestId) return;
+
+        if (actionId === "APPROVE_ACTION") {
+          await supabase
+            .from("visitor_requests")
+            .update({ status: "approved" })
+            .eq("id", visitorRequestId);
+        } else if (actionId === "DENY_ACTION") {
+          await supabase
+            .from("visitor_requests")
+            .update({ status: "denied" })
+            .eq("id", visitorRequestId);
+        }
+      },
     );
 
     return () => {

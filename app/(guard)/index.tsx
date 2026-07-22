@@ -438,20 +438,55 @@ export default function GuardHome() {
         return;
       }
 
-      const { error: requestError } = await supabase
-        .from("visitor_requests")
-        .insert({
-          visitor_id: visitor.id,
-          flat_id: flat.id,
-          requested_by: userId,
-          status: "pending",
-        });
+     const { data: newRequest, error: requestError } = await supabase
+  .from("visitor_requests")
+  .insert({
+    visitor_id: visitor.id,
+    flat_id: flat.id,
+    requested_by: userId,
+    status: "pending",
+  })
+  .select()
+  .single();
 
-      if (requestError) {
-        Alert.alert("Error", requestError.message);
-        setLoading(false);
-        return;
-      }
+if (requestError || !newRequest) {
+  Alert.alert("Error", requestError?.message ?? "Could not create request");
+  setLoading(false);
+  return;
+}
+
+// Send interactive push notification to the resident of this flat
+try {
+  const { data: residentProfile } = await supabase
+    .from("profiles")
+    .select("push_token")
+    .eq("flat_id", flat.id)
+    .eq("role", "resident")
+    .not("push_token", "is", null)
+    .maybeSingle();
+
+  if (residentProfile?.push_token) {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Accept-encoding": "gzip, deflate",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: residentProfile.push_token,
+        sound: "default",
+        title: "🚪 Visitor at Main Gate!",
+        body: `${name} (${finalVisitorType}) is requesting entry to your flat.`,
+        data: { visitorRequestId: newRequest.id },
+        categoryId: "VISITOR_APPROVAL",
+      }),
+    });
+  }
+} catch (pushErr) {
+  console.log("Push notification failed to send:", pushErr);
+  // Don't block the flow — the request still exists and resident can approve in-app
+}
 
       setName("");
       setPhone("");
