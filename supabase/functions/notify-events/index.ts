@@ -1,8 +1,3 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
-
-// Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 
@@ -12,13 +7,10 @@ type ExpoMessage = {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  categoryId?: string;
   channelId: "default";
 };
 
-// Dedupe messages by push token so the same device never receives
-// more than one push for the same event, even if multiple resident
-// rows happen to share the same token (e.g. multiple test accounts
-// logged in on one physical device).
 function dedupeByToken(messages: ExpoMessage[]): ExpoMessage[] {
   const seen = new Set<string>();
   const result: ExpoMessage[] = [];
@@ -56,7 +48,6 @@ async function sendExpoPush(messages: ExpoMessage[]) {
   return results;
 }
 
-// This endpoint is called by Database Webhooks using the secret (service role) key.
 export default {
   fetch: withSupabase({ auth: ["secret"] }, async (req, ctx) => {
     const payload = await req.json();
@@ -68,8 +59,6 @@ export default {
     }
 
     console.log("Webhook fired for table:", table);
-
-    // ctx.supabaseAdmin bypasses RLS - needed to read push_token across all residents
     const supabase = ctx.supabaseAdmin;
 
     async function getAllResidentTokens() {
@@ -89,6 +78,11 @@ export default {
     let result: any;
 
     if (table === "visitor_requests") {
+      // Skip sending push notifications if request is pre-approved or not pending
+      if (record.status !== "pending" || record.pre_approved) {
+        return Response.json({ skipped: "Request is pre-approved or not pending" });
+      }
+
       const { flat_id, visitor_id, id: requestId } = record;
 
       const [{ data: visitor }, { data: flat }, { data: residents, error: residentsError }] = await Promise.all([
@@ -108,16 +102,17 @@ export default {
         result = { message: "No residents to notify for this flat" };
       } else {
         const visitorName = visitor?.name ?? "A visitor";
-        const flatNumber = flat?.flat_number ?? "";
+        const visitorType = visitor?.visitor_type ?? "guest";
 
         const messages: ExpoMessage[] = residents
           .filter((r: any) => r.push_token)
           .map((r: any) => ({
             to: r.push_token,
             sound: "default",
-            title: "New Visitor Request",
-            body: `${visitorName} (${visitor?.visitor_type ?? "visitor"}) is waiting for approval${flatNumber ? ` - Flat ${flatNumber}` : ""}`,
-            data: { type: "visitor_request", requestId, flatId: flat_id },
+            title: "🚪 Visitor Request at Main Gate",
+            body: `${visitorName} (${visitorType}) is requesting entry to your flat.`,
+            data: { type: "visitor_request", visitorRequestId: requestId, requestId, flatId: flat_id },
+            categoryId: "VISITOR_APPROVAL", // Displays [✅ Allow Entry] & [❌ Deny Entry]
             channelId: "default",
           }));
 
@@ -132,8 +127,8 @@ export default {
         const messages: ExpoMessage[] = residents.map((r: any) => ({
           to: r.push_token,
           sound: "default",
-          title: "New Society Notice",
-          body: record.title ?? "A new notice has been posted",
+          title: "📢 Society Announcement",
+          body: record.title ?? "A new notice has been posted by management.",
           data: { type: "notice", noticeId: record.id },
           channelId: "default",
         }));
@@ -149,8 +144,8 @@ export default {
         const messages: ExpoMessage[] = residents.map((r: any) => ({
           to: r.push_token,
           sound: "default",
-          title: "New Community Poll",
-          body: record.question ?? "A new poll is open for voting",
+          title: "📊 Community Poll Open",
+          body: record.question ?? "A new poll is open for voting.",
           data: { type: "poll", pollId: record.id },
           channelId: "default",
         }));
@@ -166,14 +161,3 @@ export default {
     return Response.json({ success: true, result });
   }),
 };
-
-/* To invoke locally:
-
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
-
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/notify-events' \
-    --header 'apiKey: <your-secret-key>' \
-    --data '{"table":"notices","record":{"id":"test","title":"Test notice"}}'
-
-*/

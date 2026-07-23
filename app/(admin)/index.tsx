@@ -46,11 +46,15 @@ const DANGER = '#C23B3B';
 const DANGER_BG = '#FBEAEA';
 const WARN = '#C9922B';
 const WARN_BG = '#FBF3E4';
+const TEAL = '#0E7C7B';
+const TEAL_BG = '#E4F5F4';
 
 type VisitorRequest = {
   id: string;
   status: string;
+  resolution: string | null;
   pre_approved: boolean;
+  otp_code: string | null;
   created_at: string;
   visitors: { name: string; visitor_type: string; photo_url: string | null } | null;
   flats: { flat_number: string } | null;
@@ -197,9 +201,14 @@ export default function AdminHome() {
   };
 
   const fetchRequests = async () => {
-    const { data } = await supabase.from('visitor_requests').select('id, status, pre_approved, created_at, visitors(name, visitor_type, photo_url), flats(flat_number)').order('created_at', { ascending: false }).limit(50);
+    const { data } = await supabase
+      .from('visitor_requests')
+      .select('id, status, resolution, pre_approved, otp_code, created_at, visitors(name, visitor_type, photo_url), flats(flat_number)')
+      .order('created_at', { ascending: false })
+      .limit(50);
     if (data) setRequests(data as any);
   };
+
   const fetchTickets = async () => {
     const { data } = await supabase.from('tickets').select('*').order('created_at', { ascending: false });
     if (data) setTickets(data);
@@ -261,6 +270,7 @@ export default function AdminHome() {
       supabase.channel('notices_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'notices' }, fetchAllNotices).subscribe(),
       supabase.channel('polls_admin_list').on('postgres_changes', { event: '*', schema: 'public', table: 'polls' }, fetchAllPolls).subscribe(),
       supabase.channel('dues_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'dues' }, fetchDues).subscribe(),
+      supabase.channel('express_passes_admin').on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_pre_approvals' }, fetchRequests).subscribe(),
       supabase.channel('admin_sos_realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'sos_alerts' }, (payload) => {
         fetchActiveSosAlerts();
         if (payload.eventType === 'INSERT') {
@@ -531,11 +541,13 @@ export default function AdminHome() {
   const todayCount = requests.filter((r) => new Date(r.created_at).toDateString() === today).length;
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter);
+  
   const statusColor = (s: string) => (s === 'approved' ? SUCCESS : s === 'denied' ? DANGER : WARN);
   const statusBg = (s: string) => (s === 'approved' ? SUCCESS_BG : s === 'denied' ? DANGER_BG : WARN_BG);
   const ticketStatusColor = (s: string) => (s === 'resolved' ? SUCCESS : s === 'in_progress' ? WARN : INK_MUTED);
   const ticketStatusBg = (s: string) => (s === 'resolved' ? SUCCESS_BG : s === 'in_progress' ? WARN_BG : INPUT_BG);
   const amenityNameFor = (id: string) => amenities.find((a) => a.id === id)?.name ?? 'Unknown';
+  
   const pendingDues = dues.filter((d) => d.status !== 'paid');
   const paidDues = dues.filter((d) => d.status === 'paid');
   const totalDue = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
@@ -544,6 +556,7 @@ export default function AdminHome() {
   const collectedThisMonth = paidDues
     .filter((d) => d.paid_at && `${new Date(d.paid_at).getFullYear()}-${new Date(d.paid_at).getMonth()}` === currentMonthKey)
     .reduce((sum, d) => sum + Number(d.amount), 0);
+  
   const towerNameFor = (id: string) => towers.find((t) => t.id === id)?.name ?? 'Unknown';
   const flatNumberFor = (id: string | null) => flats.find((f) => f.id === id)?.flat_number ?? '—';
   const pendingResidents = residents.filter((r) => !r.approved);
@@ -775,8 +788,18 @@ export default function AdminHome() {
                         <View style={{ flex: 1 }}>
                           <View style={styles.row}>
                             <Text style={styles.visitorName} numberOfLines={1}>{item.visitors?.name}</Text>
-                            <Chip compact textStyle={{ color: statusColor(item.status), fontWeight: '600', fontSize: 11 }} style={{ backgroundColor: statusBg(item.status) }}>
-                              {item.pre_approved ? 'pre-approved' : item.status}
+                            <Chip 
+                              compact 
+                              textStyle={{ 
+                                color: item.resolution === 'left_at_gate' ? TEAL : statusColor(item.status), 
+                                fontWeight: '600', 
+                                fontSize: 11 
+                              }} 
+                              style={{ 
+                                backgroundColor: item.resolution === 'left_at_gate' ? TEAL_BG : statusBg(item.status) 
+                              }}
+                            >
+                              {item.resolution === 'left_at_gate' ? 'left at gate' : item.pre_approved ? 'pre-approved' : item.status}
                             </Chip>
                           </View>
                           <Text style={styles.meta}>Flat {item.flats?.flat_number} · {item.visitors?.visitor_type}</Text>
@@ -1268,7 +1291,9 @@ export default function AdminHome() {
                 </View>
                 <View style={styles.modalRow}>
                   <Text style={styles.modalLabel}>Status</Text>
-                  <Text style={[styles.modalValue, { color: statusColor(selectedVisitor.status) }]}>{selectedVisitor.status.toUpperCase()}</Text>
+                  <Text style={[styles.modalValue, { color: selectedVisitor.resolution === 'left_at_gate' ? TEAL : statusColor(selectedVisitor.status) }]}>
+                    {selectedVisitor.resolution === 'left_at_gate' ? 'Left at Gate' : selectedVisitor.pre_approved ? 'Pre-Approved' : selectedVisitor.status.toUpperCase()}
+                  </Text>
                 </View>
                 <View style={styles.modalRow}>
                   <Text style={styles.modalLabel}>Logged Time</Text>
@@ -1467,7 +1492,7 @@ export default function AdminHome() {
       </Modal>
 
       {/* MORE MENU BOTTOM SHEET */}
-      <Modal visible={moreOpen} transparent animationType="fade" onRequestClose={() => setMoreOpen(false)}>
+      <Modal visible={moreOpen} transparent animationType="slide" onRequestClose={() => setMoreOpen(false)}>
         <Pressable style={styles.sheetBackdropBottom} onPress={() => setMoreOpen(false)}>
           <Pressable style={styles.sheetCard} onPress={() => {}}>
             <View style={styles.sheetHandle} />
@@ -1660,7 +1685,7 @@ const styles = StyleSheet.create({
   navAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: ACCENT, justifyContent: 'center', alignItems: 'center' },
   navAvatarInitial: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  sheetBackdropBottom: { flex: 1, backgroundColor: 'rgba(21,19,31,0.35)', justifyContent: 'flex-end' },
+  sheetBackdropBottom: { flex: 1, backgroundColor: 'rgba(21,19,31,0.45)', justifyContent: 'flex-end' },
   sheetBackdropCenter: { flex: 1, backgroundColor: 'rgba(21,19,31,0.45)', justifyContent: 'center' },
   sheetCard: {
     backgroundColor: CARD_BG, borderTopLeftRadius: 28, borderTopRightRadius: 28,

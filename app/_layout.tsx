@@ -20,17 +20,16 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Register the Approve/Deny action buttons for visitor requests.
-// Must run before any notification with categoryId: 'VISITOR_APPROVAL' arrives.
+// Register exactly 2 Action Buttons for Visitor Approvals on Mobile Lock Screen
 Notifications.setNotificationCategoryAsync("VISITOR_APPROVAL", [
   {
     identifier: "APPROVE_ACTION",
-    buttonTitle: "✅ Approve",
+    buttonTitle: "✅ Allow Entry",
     options: { opensAppToForeground: false },
   },
   {
     identifier: "DENY_ACTION",
-    buttonTitle: "❌ Deny",
+    buttonTitle: "❌ Deny Entry",
     options: { isDestructive: true, opensAppToForeground: false },
   },
 ]);
@@ -74,19 +73,31 @@ async function registerForPushNotifications(userId: string) {
       return;
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-    const token = tokenData.data;
+    let token = null;
+    let attempts = 0;
+    while (!token && attempts < 2) {
+      try {
+        attempts++;
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        token = tokenData.data;
+      } catch (err) {
+        if (attempts >= 2) throw err;
+        await new Promise((res) => setTimeout(res, 2000));
+      }
+    }
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ push_token: token })
-      .eq("id", userId);
+    if (token) {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ push_token: token })
+        .eq("id", userId);
 
-    if (error) {
-      console.log("Failed to save push token to Supabase:", error.message);
+      if (error) {
+        console.log("Failed to save push token to Supabase:", error.message);
+      }
     }
   } catch (err) {
-    console.log("Push token registration failed:", err);
+    console.log("Push token registration skipped due to network availability.");
   }
 }
 
@@ -121,7 +132,8 @@ export default function RootLayout() {
       async (response) => {
         const actionId = response.actionIdentifier;
         const visitorRequestId =
-          response.notification.request.content.data?.visitorRequestId;
+          response.notification.request.content.data?.visitorRequestId ||
+          response.notification.request.content.data?.requestId;
 
         if (!visitorRequestId) return;
 

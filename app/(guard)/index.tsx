@@ -787,9 +787,7 @@ export default function GuardHome() {
         if (freqError) console.log("Could not save frequent visitor:", freqError);
       }
 
-      // Live Request requires resident action -> Send Push
-      await sendVisitorPush(flat.id, name, finalVisitorType, newRequest.id);
-
+     
       resetNewVisitorForm();
       Alert.alert(
         "Request Sent",
