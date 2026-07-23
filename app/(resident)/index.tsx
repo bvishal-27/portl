@@ -12,6 +12,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Linking,
+  Share,
 } from "react-native";
 import {
   Button,
@@ -118,15 +119,45 @@ const MORE_TABS = [
   { key: "staff", label: "Staff", icon: "account-hard-hat" },
 ];
 
+const ENTRY_TYPES = [
+  { label: "🍔 Food Delivery", key: "food" },
+  { label: "📦 Parcel / E-Commerce", key: "parcel" },
+  { label: "🚕 Cab / Rapido / Ride", key: "cab" },
+  { label: "🛵 Other Service", key: "other" },
+];
+
+const VALIDITY_OPTIONS = [
+  { label: "⏱️ Next 1 Hour", key: "1_hour" },
+  { label: "⏱️ Next 2 Hours", key: "2_hours" },
+  { label: "☀️ Valid Today", key: "today" },
+  { label: "📦 Leave at Gate directly", key: "leave_at_gate" },
+];
+
 export default function ResidentHome() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState("home");
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [flatId, setFlatId] = useState<string | null>(null);
+
+  // Visitors Tab Form Switch: 'guest' | 'express'
+  const [preApproveMode, setPreApproveMode] = useState<"guest" | "express">("guest");
+
+  // Guest Pre-approval state
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [guestPhotoUri, setGuestPhotoUri] = useState<string | null>(null);
   const [guestLoading, setGuestLoading] = useState(false);
+
+  // Express Pass (Delivery/Cab) State
+  const [deliveryCategory, setDeliveryCategory] = useState("food");
+  const [customDeliveryName, setCustomDeliveryName] = useState("");
+  const [deliveryValidity, setDeliveryValidity] = useState("1_hour");
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+
+  // Dropdown Modal Pickers
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
+  const [validityPickerOpen, setValidityPickerOpen] = useState(false);
+
   const [notices, setNotices] = useState<Notice[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
@@ -174,11 +205,22 @@ export default function ResidentHome() {
     Alert.alert("Code Copied", `Passcode ${code} copied to clipboard!`);
   };
 
-  const sharePasscode = (visitorName: string, code: string) => {
-    const msg = `Hi ${visitorName}, here is your entry passcode for ${myProfile?.tower_name ?? ""} Flat ${myProfile?.flat_number ?? ""}:\n\nCode: ${code}\n\nPlease show this code to the security guard at the main gate.`;
-    Sharing.shareAsync("", { dialogTitle: "Share Guest Passcode", mimeType: "text/plain" }).catch(() => {
-      Alert.alert("Passcode Message", msg);
-    });
+  const buildPasscodeMessage = (visitorName: string, code: string) => {
+    const flatLabel = `${myProfile?.tower_name ? myProfile.tower_name + " · " : ""}Flat ${myProfile?.flat_number ?? "—"}`;
+    return `You're invited! 🏡\n\nHi ${visitorName}, you've been pre-approved to visit ${flatLabel}.\n\nYour entry passcode: ${code}\n\nPlease show this code to the security guard at the main gate on arrival.`;
+  };
+
+  const sharePasscode = async (visitorName: string, code: string) => {
+    const msg = buildPasscodeMessage(visitorName, code);
+    try {
+      await Share.share(
+        Platform.OS === "ios"
+          ? { message: msg }
+          : { message: msg, title: "Guest Entry Passcode" }
+      );
+    } catch {
+      Alert.alert("Guest Passcode", msg);
+    }
   };
 
   const callPhone = (phone: string | null) => {
@@ -439,6 +481,36 @@ export default function ResidentHome() {
     }
   };
 
+  const notifySelfOfPreApproval = async (visitorName: string, code: string) => {
+    try {
+      const { data: selfProfile } = await supabase
+        .from("profiles")
+        .select("push_token")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (selfProfile?.push_token) {
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Accept-encoding": "gzip, deflate",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: selfProfile.push_token,
+            sound: "default",
+            title: "✅ Guest Pre-approved",
+            body: `${visitorName} is pre-approved for entry. Passcode: ${code}`,
+            data: { screen: "visitors" },
+          }),
+        });
+      }
+    } catch (pushErr) {
+      console.log("Self pre-approval notification failed:", pushErr);
+    }
+  };
+
   const handlePreApprove = async () => {
     if (guestLoading) return;
     if (!guestName || !flatId) {
@@ -488,15 +560,74 @@ export default function ResidentHome() {
         Alert.alert("Error", requestError.message);
         return;
       }
+
+      notifySelfOfPreApproval(guestName, otpCode);
+
       Alert.alert(
         "Pre-approved Successfully",
-        `${guestName} is pre-approved.\n\nPasscode: ${otpCode}\n\nCode added to your Visitor History.`
+        `${guestName} is pre-approved.\n\nPasscode: ${otpCode}\n\nCode added to your Visitor History. Share it with your guest from there.`
       );
       setGuestName("");
       setGuestPhone("");
       setGuestPhotoUri(null);
     } finally {
       setGuestLoading(false);
+    }
+  };
+
+  const handlePreApproveDelivery = async () => {
+    if (!flatId) return;
+
+    const finalCategory =
+      deliveryCategory === "other" && customDeliveryName.trim()
+        ? customDeliveryName.trim()
+        : deliveryCategory;
+
+    if (!finalCategory) {
+      Alert.alert("Missing info", "Please specify the delivery name");
+      return;
+    }
+
+    setDeliveryLoading(true);
+
+    try {
+      let validUntil = new Date();
+      let leaveAtGateOnly = false;
+
+      if (deliveryValidity === "1_hour") {
+        validUntil.setHours(validUntil.getHours() + 1);
+      } else if (deliveryValidity === "2_hours") {
+        validUntil.setHours(validUntil.getHours() + 2);
+      } else if (deliveryValidity === "today") {
+        validUntil.setHours(23, 59, 59, 999);
+      } else if (deliveryValidity === "leave_at_gate") {
+        validUntil.setHours(validUntil.getHours() + 4);
+        leaveAtGateOnly = true;
+      }
+
+      const { error } = await supabase.from("delivery_pre_approvals").insert({
+        flat_id: flatId,
+        resident_id: userId,
+        company_name: finalCategory.toLowerCase(),
+        leave_at_gate_only: leaveAtGateOnly,
+        valid_until: validUntil.toISOString(),
+      });
+
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+
+      Alert.alert(
+        "Express Pass Active! ⚡",
+        `Pre-approval enabled for ${finalCategory.toUpperCase()}.\n\nInstructions: ${
+          leaveAtGateOnly ? "Leave parcel at Gate." : "Allowed inside."
+        }`
+      );
+
+      setCustomDeliveryName("");
+    } finally {
+      setDeliveryLoading(false);
     }
   };
 
@@ -749,6 +880,9 @@ export default function ResidentHome() {
   const latestNotice = notices[0] ?? null;
   const nextBooking = myBookings[0] ?? null;
 
+  const selectedCategoryObj = ENTRY_TYPES.find((c) => c.key === deliveryCategory);
+  const selectedValidityObj = VALIDITY_OPTIONS.find((v) => v.key === deliveryValidity);
+
   const goToTab = (key: string) => {
     setTab(key);
     setMoreOpen(false);
@@ -977,87 +1111,210 @@ export default function ResidentHome() {
 
           {tab === "visitors" && (
             <>
-              <View style={styles.sectionCard}>
-                <View style={styles.sectionHeaderRow}>
-                  <Avatar.Icon
-                    size={30}
-                    icon="account-plus"
-                    style={styles.sectionIcon}
-                    color={ACCENT}
-                  />
-                  <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
-                </View>
-                <View style={styles.inputWrap}>
-                  <TextInput
-                    mode="flat"
-                    label="Guest name"
-                    value={guestName}
-                    onChangeText={setGuestName}
-                    maxLength={15}
-                    style={styles.input}
-                    underlineColor="transparent"
-                    activeUnderlineColor="transparent"
-                    textColor={INK}
-                    theme={inputTheme}
-                    cursorColor={ACCENT}
-                  />
-                </View>
-                <View style={styles.inputWrap}>
-                  <TextInput
-                    mode="flat"
-                    label="Guest phone"
-                    value={guestPhone}
-                    onChangeText={(t) => setGuestPhone(t.replace(/\D/g, ""))}
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    style={styles.input}
-                    underlineColor="transparent"
-                    activeUnderlineColor="transparent"
-                    textColor={INK}
-                    theme={inputTheme}
-                    cursorColor={ACCENT}
-                  />
-                </View>
-                <View style={styles.photoRow}>
-                  {guestPhotoUri ? (
-                    <Image
-                      source={{ uri: guestPhotoUri }}
-                      style={styles.previewImage}
+              {/* CLEAN UI SEGMENT SWITCHER */}
+              <View style={styles.formSwitcherContainer}>
+                <Pressable
+                  style={[
+                    styles.formSwitcherTab,
+                    preApproveMode === "guest" && styles.formSwitcherTabActive,
+                  ]}
+                  onPress={() => setPreApproveMode("guest")}
+                >
+                  <Text
+                    style={[
+                      styles.formSwitcherText,
+                      preApproveMode === "guest" && styles.formSwitcherTextActive,
+                    ]}
+                  >
+                    👤 Guest Pass
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.formSwitcherTab,
+                    preApproveMode === "express" && styles.formSwitcherTabActive,
+                  ]}
+                  onPress={() => setPreApproveMode("express")}
+                >
+                  <Text
+                    style={[
+                      styles.formSwitcherText,
+                      preApproveMode === "express" && styles.formSwitcherTextActive,
+                    ]}
+                  >
+                    ⚡ Express Pass
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* OPTION 1: GUEST PRE-APPROVAL */}
+              {preApproveMode === "guest" && (
+                <View style={styles.sectionCard}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Avatar.Icon
+                      size={30}
+                      icon="account-plus"
+                      style={styles.sectionIcon}
+                      color={ACCENT}
                     />
-                  ) : (
-                    <View style={styles.photoPlaceholder}>
-                      <Avatar.Icon
-                        size={32}
-                        icon="camera"
-                        style={{ backgroundColor: "transparent" }}
-                        color={INK_FAINT}
+                    <Text style={styles.sectionTitle}>Pre-approve a Guest</Text>
+                  </View>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      mode="flat"
+                      label="Guest name"
+                      value={guestName}
+                      onChangeText={setGuestName}
+                      maxLength={15}
+                      style={styles.input}
+                      underlineColor="transparent"
+                      activeUnderlineColor="transparent"
+                      textColor={INK}
+                      theme={inputTheme}
+                      cursorColor={ACCENT}
+                    />
+                  </View>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      mode="flat"
+                      label="Guest phone"
+                      value={guestPhone}
+                      onChangeText={(t) => setGuestPhone(t.replace(/\D/g, ""))}
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      style={styles.input}
+                      underlineColor="transparent"
+                      activeUnderlineColor="transparent"
+                      textColor={INK}
+                      theme={inputTheme}
+                      cursorColor={ACCENT}
+                    />
+                  </View>
+                  <View style={styles.photoRow}>
+                    {guestPhotoUri ? (
+                      <Image
+                        source={{ uri: guestPhotoUri }}
+                        style={styles.previewImage}
+                      />
+                    ) : (
+                      <View style={styles.photoPlaceholder}>
+                        <Avatar.Icon
+                          size={32}
+                          icon="camera"
+                          style={{ backgroundColor: "transparent" }}
+                          color={INK_FAINT}
+                        />
+                      </View>
+                    )}
+                    <Button
+                      mode="outlined"
+                      onPress={pickGuestPhoto}
+                      icon="camera"
+                      textColor={ACCENT}
+                      style={styles.photoButton}
+                    >
+                      {guestPhotoUri ? "Retake" : "Add Photo"}
+                    </Button>
+                  </View>
+                  <Button
+                    mode="contained"
+                    onPress={handlePreApprove}
+                    loading={guestLoading}
+                    disabled={guestLoading}
+                    buttonColor={ACCENT}
+                    textColor="#fff"
+                    style={styles.submitButton}
+                    contentStyle={{ paddingVertical: 4 }}
+                  >
+                    Pre-approve Guest
+                  </Button>
+                </View>
+              )}
+
+              {/* OPTION 2: EXPRESS PASS (DELIVERY / CAB) */}
+              {preApproveMode === "express" && (
+                <View style={styles.sectionCard}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Avatar.Icon
+                      size={30}
+                      icon="flash-outline"
+                      style={styles.sectionIcon}
+                      color={ACCENT}
+                    />
+                    <Text style={styles.sectionTitle}>Express Pass (Services & Cabs)</Text>
+                  </View>
+
+                  {/* Dropdown 1: Type of Entry */}
+                  <Text style={styles.fieldLabel}>Type of Entry</Text>
+                  <Pressable
+                    style={styles.dropdownSelector}
+                    onPress={() => setTypePickerOpen(true)}
+                  >
+                    <Text style={styles.dropdownValueText}>
+                      {selectedCategoryObj?.label ?? "Select Entry Type"}
+                    </Text>
+                    <IconButton
+                      icon="chevron-down"
+                      size={20}
+                      iconColor={INK_MUTED}
+                      style={{ margin: 0 }}
+                    />
+                  </Pressable>
+
+                  {/* Custom Name input if "Other" selected */}
+                  {deliveryCategory === "other" && (
+                    <View style={[styles.inputWrap, { marginTop: 12 }]}>
+                      <TextInput
+                        mode="flat"
+                        label="Specify Service / Company Name"
+                        value={customDeliveryName}
+                        onChangeText={setCustomDeliveryName}
+                        style={styles.input}
+                        underlineColor="transparent"
+                        activeUnderlineColor="transparent"
+                        textColor={INK}
+                        theme={inputTheme}
+                        cursorColor={ACCENT}
                       />
                     </View>
                   )}
-                  <Button
-                    mode="outlined"
-                    onPress={pickGuestPhoto}
-                    icon="camera"
-                    textColor={ACCENT}
-                    style={styles.photoButton}
+
+                  {/* Dropdown 2: Validity Window / Action */}
+                  <Text style={[styles.fieldLabel, { marginTop: 12 }]}>
+                    Validity Window / Action
+                  </Text>
+                  <Pressable
+                    style={styles.dropdownSelector}
+                    onPress={() => setValidityPickerOpen(true)}
                   >
-                    {guestPhotoUri ? "Retake" : "Add Photo"}
+                    <Text style={styles.dropdownValueText}>
+                      {selectedValidityObj?.label ?? "Select Validity"}
+                    </Text>
+                    <IconButton
+                      icon="chevron-down"
+                      size={20}
+                      iconColor={INK_MUTED}
+                      style={{ margin: 0 }}
+                    />
+                  </Pressable>
+
+                  <Button
+                    mode="contained"
+                    onPress={handlePreApproveDelivery}
+                    loading={deliveryLoading}
+                    disabled={deliveryLoading}
+                    buttonColor={ACCENT}
+                    textColor="#fff"
+                    style={[styles.submitButton, { marginTop: 16 }]}
+                    contentStyle={{ paddingVertical: 4 }}
+                  >
+                    Generate Express Pass
                   </Button>
                 </View>
-                <Button
-                  mode="contained"
-                  onPress={handlePreApprove}
-                  loading={guestLoading}
-                  disabled={guestLoading}
-                  buttonColor={ACCENT}
-                  textColor="#fff"
-                  style={styles.submitButton}
-                  contentStyle={{ paddingVertical: 4 }}
-                >
-                  Pre-approve Guest
-                </Button>
-              </View>
+              )}
 
+              {/* LIST 1: PENDING APPROVALS */}
               <View style={styles.sectionHeaderRow}>
                 <Avatar.Icon
                   size={30}
@@ -1136,6 +1393,7 @@ export default function ResidentHome() {
                 )}
               />
 
+              {/* LIST 2: VISITOR HISTORY */}
               <View style={[styles.sectionHeaderRow, { marginTop: 20 }]}>
                 <Avatar.Icon
                   size={30}
@@ -1920,6 +2178,104 @@ export default function ResidentHome() {
         </Pressable>
       </View>
 
+      {/* DROPDOWN MODAL: TYPE OF ENTRY */}
+      <Modal
+        visible={typePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTypePickerOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdropBottom}
+          onPress={() => setTypePickerOpen(false)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Select Entry Type</Text>
+            {ENTRY_TYPES.map((item) => (
+              <Pressable
+                key={item.key}
+                style={[
+                  styles.pickerOptionRow,
+                  deliveryCategory === item.key && styles.pickerOptionSelected,
+                ]}
+                onPress={() => {
+                  setDeliveryCategory(item.key);
+                  setTypePickerOpen(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    deliveryCategory === item.key && styles.pickerOptionTextSelected,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                {deliveryCategory === item.key && (
+                  <IconButton
+                    icon="check"
+                    size={18}
+                    iconColor={ACCENT}
+                    style={{ margin: 0 }}
+                  />
+                )}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* DROPDOWN MODAL: VALIDITY WINDOW */}
+      <Modal
+        visible={validityPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setValidityPickerOpen(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdropBottom}
+          onPress={() => setValidityPickerOpen(false)}
+        >
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Select Validity / Action</Text>
+            {VALIDITY_OPTIONS.filter((v) =>
+              deliveryCategory === "cab" ? v.key !== "leave_at_gate" : true
+            ).map((item) => (
+              <Pressable
+                key={item.key}
+                style={[
+                  styles.pickerOptionRow,
+                  deliveryValidity === item.key && styles.pickerOptionSelected,
+                ]}
+                onPress={() => {
+                  setDeliveryValidity(item.key);
+                  setValidityPickerOpen(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    deliveryValidity === item.key && styles.pickerOptionTextSelected,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                {deliveryValidity === item.key && (
+                  <IconButton
+                    icon="check"
+                    size={18}
+                    iconColor={ACCENT}
+                    style={{ margin: 0 }}
+                  />
+                )}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* VISITOR CARD DETAIL MODAL */}
       <Modal
         visible={!!selectedVisitor}
@@ -2002,8 +2358,31 @@ export default function ResidentHome() {
 
                 {selectedVisitor.otp_code && (
                   <View style={[styles.cardOtpBoxModal, { marginTop: 12 }]}>
-                    <Text style={styles.receiptLabel}>Passcode:</Text>
-                    <Text style={styles.otpModalCode}>{selectedVisitor.otp_code}</Text>
+                    <View>
+                      <Text style={styles.receiptLabel}>Passcode</Text>
+                      <Text style={styles.otpModalCode}>{selectedVisitor.otp_code}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row" }}>
+                      <IconButton
+                        icon="content-copy"
+                        size={18}
+                        iconColor={ACCENT}
+                        style={{ margin: 0 }}
+                        onPress={() => copyToClipboard(selectedVisitor.otp_code!)}
+                      />
+                      <IconButton
+                        icon="share-variant"
+                        size={18}
+                        iconColor={ACCENT}
+                        style={{ margin: 0 }}
+                        onPress={() =>
+                          sharePasscode(
+                            selectedVisitor.visitors?.name ?? "Guest",
+                            selectedVisitor.otp_code!
+                          )
+                        }
+                      />
+                    </View>
                   </View>
                 )}
 
@@ -2340,11 +2719,11 @@ export default function ResidentHome() {
         </Pressable>
       </Modal>
 
-      {/* MORE MENU BOTTOM SHEET */}
+      {/* MORE MENU BOTTOM SHEET (STRICTLY FROM BOTTOM) */}
       <Modal
         visible={moreOpen}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setMoreOpen(false)}
       >
         <Pressable
@@ -2353,9 +2732,9 @@ export default function ResidentHome() {
         >
           <Pressable style={styles.sheetCard} onPress={() => {}}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>More</Text>
+            <Text style={styles.sheetTitle}>More Services</Text>
             <Text style={styles.sheetSubtitle}>
-              All society services in one place
+              All society management options in one place
             </Text>
             <View style={styles.moreGrid}>
               {MORE_TABS.map((t) => (
@@ -2385,7 +2764,7 @@ export default function ResidentHome() {
         </Pressable>
       </Modal>
 
-      {/* PROFILE MODAL */}
+      {/* IMPROVED PROFILE OVERLAY MODAL */}
       <Modal
         visible={profileOpen}
         animationType="slide"
@@ -2400,7 +2779,7 @@ export default function ResidentHome() {
               onPress={() => setProfileOpen(false)}
               style={{ margin: 0 }}
             />
-            <Text style={styles.profileTopBarTitle}>Profile</Text>
+            <Text style={styles.profileTopBarTitle}>Account & Profile</Text>
             <View style={{ width: 40 }} />
           </View>
 
@@ -2446,11 +2825,18 @@ export default function ResidentHome() {
               ) : null}
             </View>
 
-            <Text style={styles.profileSectionLabel}>Your Summary</Text>
+            <Text style={styles.profileSectionLabel}>Dashboard Overview</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statTile}>
-                <Text style={styles.statTileNum}>{pendingDues.length}</Text>
-                <Text style={styles.statTileLabel}>Dues Pending</Text>
+                <Text
+                  style={[
+                    styles.statTileNum,
+                    pendingDues.length > 0 && { color: DANGER },
+                  ]}
+                >
+                  {pendingDues.length}
+                </Text>
+                <Text style={styles.statTileLabel}>Pending Dues</Text>
               </View>
               <View style={styles.statTile}>
                 <Text style={styles.statTileNum}>{openTicketsCount}</Text>
@@ -2458,7 +2844,7 @@ export default function ResidentHome() {
               </View>
               <View style={styles.statTile}>
                 <Text style={styles.statTileNum}>{myBookings.length}</Text>
-                <Text style={styles.statTileLabel}>My Bookings</Text>
+                <Text style={styles.statTileLabel}>Bookings</Text>
               </View>
             </View>
 
@@ -2593,10 +2979,44 @@ const styles = StyleSheet.create({
   },
   viewAllLink: { fontSize: 13, fontWeight: "700", color: ACCENT },
 
+  // FORM SEGMENT SWITCHER
+  formSwitcherContainer: {
+    flexDirection: "row",
+    backgroundColor: INPUT_BG,
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  formSwitcherTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 12,
+  },
+  formSwitcherTabActive: {
+    backgroundColor: CARD_BG,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  formSwitcherText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: INK_MUTED,
+  },
+  formSwitcherTextActive: {
+    color: ACCENT,
+    fontWeight: "800",
+  },
+
   tabChip: { backgroundColor: INPUT_BG },
   tabChipSelected: { backgroundColor: ACCENT },
   sectionCard: {
-    marginBottom: 24,
+    marginBottom: 20,
     borderRadius: 20,
     backgroundColor: CARD_BG,
     borderWidth: 1,
@@ -2626,7 +3046,47 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
   },
-  fieldLabel: { fontSize: 13, fontWeight: "700", color: INK, marginBottom: 6 },
+  fieldLabel: { fontSize: 12.5, fontWeight: "700", color: INK, marginBottom: 6, marginTop: 4 },
+  
+  // DROPDOWN FIELD
+  dropdownSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: INPUT_BG,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  dropdownValueText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: INK,
+  },
+  pickerOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  pickerOptionSelected: {
+    backgroundColor: ACCENT_SOFT,
+  },
+  pickerOptionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: INK,
+  },
+  pickerOptionTextSelected: {
+    color: ACCENT,
+    fontWeight: "800",
+  },
+
   inputWrap: {
     backgroundColor: INPUT_BG,
     borderRadius: 14,
@@ -2654,7 +3114,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   photoButton: { flex: 1, borderColor: ACCENT },
-  submitButton: { borderRadius: 14, marginTop: 4 },
+  submitButton: { borderRadius: 14, marginTop: 6 },
   dateButton: {
     borderColor: ACCENT,
     borderRadius: 14,
@@ -2716,7 +3176,6 @@ const styles = StyleSheet.create({
   },
   thumbInitialSmall: { color: "white", fontSize: 15, fontWeight: "700" },
 
-  // Improved Clean Staff Cards
   staffCardContent: {
     padding: 14,
     flexDirection: "row",
@@ -2943,10 +3402,10 @@ const styles = StyleSheet.create({
   },
   navAvatarInitial: { color: "#fff", fontSize: 12, fontWeight: "700" },
 
-  // Modal Backdrop Helpers
+  // BOTTOM SHEET POSITION FIX (Strict Bottom Alignment)
   sheetBackdropBottom: {
     flex: 1,
-    backgroundColor: "rgba(21,19,31,0.35)",
+    backgroundColor: "rgba(21,19,31,0.45)",
     justifyContent: "flex-end",
   },
   sheetBackdropCenter: {
