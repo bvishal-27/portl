@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,7 +28,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
@@ -94,6 +94,7 @@ const MORE_TABS = [
 
 export default function AdminHome() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ tab?: string; subTab?: string; focusId?: string; type?: string }>();
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [filter, setFilter] = useState('all');
   const [tab, setTab] = useState('home');
@@ -146,6 +147,46 @@ export default function AdminHome() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [myProfile, setMyProfile] = useState<MyAdminProfile | null>(null);
+
+  const consumedFocusId = useRef<string | null>(null);
+
+  // Deep-link from a push notification: land on the right tab/sub-tab, and
+  // once the relevant list has loaded, open the specific item the
+  // notification was about (e.g. tapping an SOS or ticket-update push
+  // opens that item directly instead of just the home screen).
+  useEffect(() => {
+    if (params.tab) setTab(params.tab);
+    if (params.subTab) setSocietySubTab(params.subTab);
+  }, [params.tab, params.subTab]);
+
+  useEffect(() => {
+    if (!params.focusId || consumedFocusId.current === params.focusId) return;
+
+    if (params.type === 'notice') {
+      const match = allNotices.find((n) => n.id === params.focusId);
+      if (match) {
+        setSelectedNotice(match);
+        consumedFocusId.current = params.focusId;
+      }
+      return;
+    }
+
+    if (params.type === 'ticket_update') {
+      const match = tickets.find((t) => t.id === params.focusId);
+      if (match) {
+        setSelectedTicket(match);
+        consumedFocusId.current = params.focusId;
+      }
+      return;
+    }
+
+    // Default: visitor-related pushes reference a visitor_requests id.
+    const match = requests.find((r) => r.id === params.focusId);
+    if (match) {
+      setSelectedVisitor(match);
+      consumedFocusId.current = params.focusId;
+    }
+  }, [params.focusId, params.type, requests, allNotices, tickets]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

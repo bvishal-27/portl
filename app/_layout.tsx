@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PaperProvider, MD3LightTheme } from "react-native-paper";
 import { View, ActivityIndicator, Platform } from "react-native";
@@ -101,6 +101,15 @@ async function registerForPushNotifications(userId: string) {
   }
 }
 
+// Maps a logged-in user's role to their route group. Falls back to
+// "/(resident)" if the role is missing/unrecognized so a stray notification
+// never crashes navigation.
+function basePathForRole(role: string | null | undefined) {
+  if (role === "guard") return "/(guard)";
+  if (role === "admin") return "/(admin)";
+  return "/(resident)";
+}
+
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const setSession = useAuthStore((s) => s.setSession);
@@ -131,23 +140,35 @@ export default function RootLayout() {
     const responseSub = Notifications.addNotificationResponseReceivedListener(
       async (response) => {
         const actionId = response.actionIdentifier;
-        const visitorRequestId =
-          response.notification.request.content.data?.visitorRequestId ||
-          response.notification.request.content.data?.requestId;
+        const data = response.notification.request.content.data as any;
+        const visitorRequestId = data?.visitorRequestId || data?.requestId;
 
-        if (!visitorRequestId) return;
-
-        if (actionId === "APPROVE_ACTION") {
-          await supabase
-            .from("visitor_requests")
-            .update({ status: "approved" })
-            .eq("id", visitorRequestId);
-        } else if (actionId === "DENY_ACTION") {
-          await supabase
-            .from("visitor_requests")
-            .update({ status: "denied" })
-            .eq("id", visitorRequestId);
+        // Lock-screen action buttons: resolve directly, no navigation needed.
+        if (actionId === "APPROVE_ACTION" && visitorRequestId) {
+          await supabase.from("visitor_requests").update({ status: "approved" }).eq("id", visitorRequestId);
+          return;
         }
+        if (actionId === "DENY_ACTION" && visitorRequestId) {
+          await supabase.from("visitor_requests").update({ status: "denied" }).eq("id", visitorRequestId);
+          return;
+        }
+
+        // Plain tap (not an action button) — route to whichever role's
+        // home screen the currently logged-in user actually has, carrying
+        // tab/subTab/focusId/type so that screen's deep-link handler can
+        // open the exact item the notification was about.
+        const role = useAuthStore.getState().role;
+        const basePath = basePathForRole(role);
+
+        router.push({
+          pathname: basePath,
+          params: {
+            tab: data?.tab ?? "home",
+            ...(data?.subTab ? { subTab: data.subTab } : {}),
+            ...(visitorRequestId ? { focusId: visitorRequestId } : {}),
+            ...(data?.type ? { type: data.type } : {}),
+          },
+        } as any);
       },
     );
 

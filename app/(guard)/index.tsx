@@ -26,7 +26,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { decode } from "base64-arraybuffer";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../store/authStore";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const INK = "#15131F";
@@ -154,6 +154,9 @@ const needsReapproval = (fv: FrequentVisitor) => {
   return daysSince > cycleDays;
 };
 
+const formatClock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 const VisitorRowItem = memo(function VisitorRowItem({
   item,
   onSelect,
@@ -220,6 +223,22 @@ const VisitorRowItem = memo(function VisitorRowItem({
             🚗 {item.visitors.vehicle_number}
           </Text>
         ) : null}
+        {(item.entry_time || item.exit_time) && (
+          <View style={styles.rowTimeChipsWrap}>
+            {item.entry_time && (
+              <View style={styles.rowTimeChip}>
+                <Text style={styles.rowTimeChipText}>In {formatClock(item.entry_time)}</Text>
+              </View>
+            )}
+            {item.exit_time && (
+              <View style={[styles.rowTimeChip, styles.rowTimeChipOut]}>
+                <Text style={[styles.rowTimeChipText, { color: INK_MUTED }]}>
+                  Out {formatClock(item.exit_time)}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
         {isDelivery && item.status === "approved" && !item.entry_time && !leftAtGate && (
           <Text style={[styles.timerTextRow, { color: expired ? DANGER : ACCENT }]}>
             {expired ? `🚨 Expired (${minsPassed}m)` : `⏳ Delivery: ${minsPassed}/30m`}
@@ -233,9 +252,9 @@ const VisitorRowItem = memo(function VisitorRowItem({
 
 export default function GuardHome() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ tab?: string; subTab?: string; focusId?: string }>();
   const [tab, setTab] = useState("home");
 
-  // Quick Tab Mode Switch: 'regular' | 'express'
   const [quickSubTab, setQuickSubTab] = useState<"regular" | "express">("regular");
 
   const [name, setName] = useState("");
@@ -270,7 +289,6 @@ export default function GuardHome() {
   const [sosAlerts, setSosAlerts] = useState<SOSAlert[]>([]);
   const [resolvingSosId, setResolvingSosId] = useState<string | null>(null);
 
-  // Active Express Passes State
   const [activeExpressPasses, setActiveExpressPasses] = useState<ActiveExpressPass[]>([]);
   const [passProcessingId, setPassProcessingId] = useState<string | null>(null);
 
@@ -290,10 +308,31 @@ export default function GuardHome() {
   const [quickLoadingId, setQuickLoadingId] = useState<string | null>(null);
 
   const notifyingTimeoutIds = useRef<Set<string>>(new Set());
+  const consumedFocusId = useRef<string | null>(null);
 
   useEffect(() => {
     actionLoadingRef.current = actionLoadingId;
   }, [actionLoadingId]);
+
+  // Deep-link from a push notification: land on the right tab/sub-tab, and
+  // once requests have loaded, open the specific request the notification
+  // was about (e.g. tapping a delivery-timeout alert opens that delivery).
+  useEffect(() => {
+    if (params.tab) setTab(params.tab);
+    if (params.subTab === "express" || params.subTab === "regular") {
+      setQuickSubTab(params.subTab);
+    }
+  }, [params.tab, params.subTab]);
+
+  useEffect(() => {
+    if (!params.focusId || consumedFocusId.current === params.focusId) return;
+    const match = requests.find((r) => r.id === params.focusId);
+    if (match) {
+      setSelectedVisitor(match);
+      setInputOtp("");
+      consumedFocusId.current = params.focusId;
+    }
+  }, [params.focusId, requests]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -326,7 +365,6 @@ export default function GuardHome() {
     }
   };
 
-  // CONSUME EXPRESS PASS (No Push Notification Sent)
   const consumeExpressPass = async (pass: ActiveExpressPass) => {
     setPassProcessingId(pass.id);
     try {
@@ -356,6 +394,17 @@ export default function GuardHome() {
           entry_time: now,
           exit_time: pass.leave_at_gate_only ? now : null,
         });
+
+        await sendResidentPush(
+          pass.flat_id,
+          pass.leave_at_gate_only ? "📦 Express Pass — Left at Gate" : "✅ Express Pass — Entered",
+          `${pass.company_name.toUpperCase()} ${
+            pass.leave_at_gate_only ? "was left with security at the gate." : "has entered the premises."
+          }`,
+          "",
+          undefined,
+          "visitors"
+        );
       }
 
       Alert.alert(
@@ -569,12 +618,18 @@ export default function GuardHome() {
     }
   };
 
+  // Central push helper. Every call now carries `type` + `tab` (and
+  // optionally `subTab`) in `data` so the notification-tap handler in
+  // _layout.tsx can route straight to the right screen for the right role,
+  // instead of always opening Home.
   const sendResidentPush = async (
     flatId: string,
     title: string,
     body: string,
     requestId: string,
-    categoryId?: string
+    categoryId?: string,
+    tab: string = "visitors",
+    type: string = "visitor_update"
   ) => {
     try {
       const { data: residentProfile } = await supabase
@@ -598,7 +653,7 @@ export default function GuardHome() {
             sound: "default",
             title,
             body,
-            data: { visitorRequestId: requestId },
+            data: { visitorRequestId: requestId, type, tab },
             ...(categoryId ? { categoryId } : {}),
           }),
         });
@@ -619,7 +674,9 @@ export default function GuardHome() {
       "🚪 Visitor at Main Gate!",
       `${visitorName} (${finalVisitorType}) is requesting entry to your flat.`,
       requestId,
-      "VISITOR_APPROVAL"
+      "VISITOR_APPROVAL",
+      "visitors",
+      "visitor_request"
     );
   };
 
@@ -647,7 +704,9 @@ export default function GuardHome() {
         "📦 Delivery still waiting at the gate",
         `${item.visitors?.name ?? "A delivery"} has been waiting over 30 minutes uncollected. Please arrange pickup or ask security to hold it.`,
         item.id,
-        "DELIVERY_TIMEOUT"
+        undefined,
+        "visitors",
+        "delivery_timeout"
       );
     } finally {
       notifyingTimeoutIds.current.delete(item.id);
@@ -787,7 +846,6 @@ export default function GuardHome() {
         if (freqError) console.log("Could not save frequent visitor:", freqError);
       }
 
-     
       resetNewVisitorForm();
       Alert.alert(
         "Request Sent",
@@ -800,7 +858,6 @@ export default function GuardHome() {
     }
   };
 
-  // HANDLE QUICK ENTRY (NO PUSH SENT IF AUTO-APPROVED)
   const handleQuickEntry = async (fv: FrequentVisitor) => {
     if (quickLoadingId) return;
     setQuickLoadingId(fv.id);
@@ -842,15 +899,33 @@ export default function GuardHome() {
       }
 
       const flatLabel = flats.find((f) => f.id === fv.flat_id)?.flat_number ?? "";
+      const typeLabel = FREQUENT_TYPES.find((t) => t.value === fv.visitor_type)?.label ?? fv.visitor_type;
 
       if (autoApprove) {
-        // Already approved -> No Push Notification Sent!
+        // Regular visitor, still within their approval window: log the
+        // entry immediately — no OTP, no waiting on the resident.
+        await supabase
+          .from("visitor_requests")
+          .update({ entry_time: new Date().toISOString() })
+          .eq("id", newRequest.id);
+
+        // Short, professional confirmation — not the "waiting for approval"
+        // wording used for new/unknown visitors.
+        await sendResidentPush(
+          fv.flat_id,
+          "✅ Regular Visitor Entered",
+          `${fv.name} (${typeLabel}) has entered.`,
+          newRequest.id,
+          undefined,
+          "visitors",
+          "visitor_entered"
+        );
+
         Alert.alert(
-          "Entry Ready",
-          `${fv.name} is a regular visitor — entry logged.`
+          "Entry Logged",
+          `${fv.name} is a regular visitor — entry marked automatically.`
         );
       } else {
-        // Needs Re-approval -> Send Push
         await sendVisitorPush(fv.flat_id, fv.name, fv.visitor_type, newRequest.id);
         Alert.alert(
           "Re-approval Needed",
@@ -871,12 +946,33 @@ export default function GuardHome() {
     actionLoadingRef.current = id;
     setActionLoadingId(id);
     try {
+      const target = requests.find((r) => r.id === id);
       const { error } = await supabase
         .from("visitor_requests")
         .update({ entry_time: new Date().toISOString() })
         .eq("id", id);
-      if (error) Alert.alert("Error", error.message);
-      else {
+      if (error) {
+        Alert.alert("Error", error.message);
+      } else {
+        // A resident pre-approved this guest earlier (with an OTP). Now that
+        // security has verified and let them in, confirm it back to the
+        // resident with a short, professional line — distinct from the
+        // "waiting for approval" push they got when the guard registered
+        // a brand-new/unknown visitor.
+        if (target?.pre_approved && target.flats?.flat_number) {
+          const flatRecord = flats.find((f) => f.flat_number === target.flats?.flat_number);
+          if (flatRecord) {
+            await sendResidentPush(
+              flatRecord.id,
+              "✅ Your Guest Has Arrived",
+              `Your pre-approved guest, ${target.visitors?.name ?? "your guest"}, has entered the premises.`,
+              id,
+              undefined,
+              "visitors",
+              "preapproved_guest_entered"
+            );
+          }
+        }
         setSelectedVisitor(null);
         setInputOtp("");
       }
@@ -886,7 +982,7 @@ export default function GuardHome() {
       actionLoadingRef.current = null;
       setActionLoadingId(null);
     }
-  }, []);
+  }, [requests, flats]);
 
   const markExit = useCallback(async (id: string) => {
     if (actionLoadingRef.current) return;
@@ -1030,6 +1126,8 @@ export default function GuardHome() {
     setRequestsLimit(REQUESTS_PAGE_SIZE);
   };
 
+  const VISITOR_TYPE_FILTERS = ["all", "guest", "delivery", "cab", "service", "other"];
+
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -1057,10 +1155,8 @@ export default function GuardHome() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* TAB 1: HOME SCREEN (CLEAN UI) */}
           {tab === "home" && (
             <>
-              {/* EMERGENCY SOS ALERTS */}
               {sosAlerts.length > 0 && (
                 <View style={{ marginBottom: 20 }}>
                   <View style={styles.sectionHeaderRow}>
@@ -1146,7 +1242,6 @@ export default function GuardHome() {
                 </View>
               )}
 
-              {/* STATS ROW */}
               <View style={styles.statsRow}>
                 <Pressable
                   style={styles.statCard}
@@ -1178,7 +1273,6 @@ export default function GuardHome() {
                 </Pressable>
               </View>
 
-              {/* QUICK ACTIONS ROW WITH 4 CLEAN TILES */}
               <Text style={styles.homeSectionLabel}>Quick Actions</Text>
               <View style={styles.quickActionsRow}>
                 <Pressable
@@ -1315,7 +1409,6 @@ export default function GuardHome() {
             </>
           )}
 
-          {/* TAB 2: CLEAN REGISTER VISITOR FORM */}
           {tab === "register" && (
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeaderRow}>
@@ -1571,10 +1664,8 @@ export default function GuardHome() {
             </View>
           )}
 
-          {/* TAB 3: QUICK ENTRY & EXPRESS PASSES */}
           {tab === "quick" && (
             <View style={styles.sectionCard}>
-              {/* SEGMENT SWITCHER */}
               <View style={styles.formSwitcherContainer}>
                 <Pressable
                   style={[
@@ -1612,7 +1703,6 @@ export default function GuardHome() {
                 </Pressable>
               </View>
 
-              {/* VIEW A: FREQUENT STAFF / REGULAR VISITORS */}
               {quickSubTab === "regular" && (
                 <>
                   <View style={styles.inputWrap}>
@@ -1787,7 +1877,6 @@ export default function GuardHome() {
                 </>
               )}
 
-              {/* VIEW B: ACTIVE EXPRESS PASSES (RESIDENT PRE-APPROVED DELIVERIES & CABS) */}
               {quickSubTab === "express" && (
                 <>
                   {activeExpressPasses.length === 0 ? (
@@ -1922,23 +2011,36 @@ export default function GuardHome() {
                 />
               </View>
 
+              {/* Simplified filter bar: status is the common, everyday filter
+                  and always visible as a single row of chips; type/tower
+                  (used far less often) live behind one "More filters" sheet
+                  instead of three separate rows stacked in the page. */}
+              <View style={styles.statusChipRow}>
+                {["all", "pending", "approved", "denied"].map((f) => (
+                  <Chip
+                    key={f}
+                    compact
+                    selected={filterStatus === f}
+                    onPress={() => {
+                      setFilterStatus(f);
+                      setRequestsLimit(REQUESTS_PAGE_SIZE);
+                    }}
+                    style={[styles.statusChip, filterStatus === f && styles.chipSelected]}
+                    textStyle={filterStatus === f ? styles.chipTextSelected : styles.chipText}
+                    selectedColor={ACCENT}
+                  >
+                    {f}
+                  </Chip>
+                ))}
+              </View>
+
               <View style={styles.toolbarRow}>
-                <Chip
-                  icon="filter-variant"
-                  selected={filtersOpen}
-                  onPress={() => setFiltersOpen((v) => !v)}
-                  style={[
-                    styles.toolbarChip,
-                    filtersOpen && styles.chipSelected,
-                  ]}
-                  textStyle={
-                    filtersOpen ? styles.chipTextSelected : styles.chipText
-                  }
-                  selectedColor={ACCENT}
-                >
-                  Filters
-                  {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-                </Chip>
+                <Pressable style={styles.moreFiltersBtn} onPress={() => setFiltersOpen(true)}>
+                  <IconButton icon="tune-variant" size={16} iconColor={ACCENT} style={{ margin: 0 }} />
+                  <Text style={styles.moreFiltersBtnText}>
+                    More filters{activeFilterCount > (filterStatus !== "all" ? 1 : 0) ? ` (${filterType !== "all" ? 1 : 0 + (filterTower !== "all" ? 1 : 0)})` : ""}
+                  </Text>
+                </Pressable>
                 <Button
                   compact
                   mode="text"
@@ -1955,118 +2057,6 @@ export default function GuardHome() {
                   {sortOrder === "newest" ? "Newest first" : "Oldest first"}
                 </Button>
               </View>
-
-              {filtersOpen && (
-                <View style={styles.filterCard}>
-                  <Text style={styles.filterLabel}>Status</Text>
-                  <View style={styles.filterRow}>
-                    {["all", "pending", "approved", "denied"].map((f) => (
-                      <Chip
-                        key={f}
-                        selected={filterStatus === f}
-                        onPress={() => {
-                          setFilterStatus(f);
-                          setRequestsLimit(REQUESTS_PAGE_SIZE);
-                        }}
-                        style={[
-                          styles.filterChip,
-                          filterStatus === f && styles.chipSelected,
-                        ]}
-                        textStyle={
-                          filterStatus === f
-                            ? styles.chipTextSelected
-                            : styles.chipText
-                        }
-                        selectedColor={ACCENT}
-                      >
-                        {f}
-                      </Chip>
-                    ))}
-                  </View>
-
-                  <Text style={styles.filterLabel}>Visitor Type</Text>
-                  <View style={styles.filterRow}>
-                    {[
-                      "all",
-                      "guest",
-                      "delivery",
-                      "cab",
-                      "service",
-                      "other",
-                    ].map((f) => (
-                      <Chip
-                        key={f}
-                        selected={filterType === f}
-                        onPress={() => {
-                          setFilterType(f);
-                          setRequestsLimit(REQUESTS_PAGE_SIZE);
-                        }}
-                        style={[
-                          styles.filterChip,
-                          filterType === f && styles.chipSelected,
-                        ]}
-                        textStyle={
-                          filterType === f
-                            ? styles.chipTextSelected
-                            : styles.chipText
-                        }
-                        selectedColor={ACCENT}
-                      >
-                        {f}
-                      </Chip>
-                    ))}
-                  </View>
-
-                  {towers.length > 0 && (
-                    <>
-                      <Text style={styles.filterLabel}>Tower</Text>
-                      <View style={styles.filterRow}>
-                        <Chip
-                          selected={filterTower === "all"}
-                          onPress={() => {
-                            setFilterTower("all");
-                            setRequestsLimit(REQUESTS_PAGE_SIZE);
-                          }}
-                          style={[
-                            styles.filterChip,
-                            filterTower === "all" && styles.chipSelected,
-                          ]}
-                          textStyle={
-                            filterTower === "all"
-                              ? styles.chipTextSelected
-                              : styles.chipText
-                          }
-                          selectedColor={ACCENT}
-                        >
-                          all
-                        </Chip>
-                        {towers.map((t) => (
-                          <Chip
-                            key={t.id}
-                            selected={filterTower === t.id}
-                            onPress={() => {
-                              setFilterTower(t.id);
-                              setRequestsLimit(REQUESTS_PAGE_SIZE);
-                            }}
-                            style={[
-                              styles.filterChip,
-                              filterTower === t.id && styles.chipSelected,
-                            ]}
-                            textStyle={
-                              filterTower === t.id
-                                ? styles.chipTextSelected
-                                : styles.chipText
-                            }
-                            selectedColor={ACCENT}
-                          >
-                            {t.name}
-                          </Chip>
-                        ))}
-                      </View>
-                    </>
-                  )}
-                </View>
-              )}
 
               {filtered.length === 0 && (
                 <View style={styles.emptyState}>
@@ -2113,6 +2103,97 @@ export default function GuardHome() {
           <View style={{ height: 90 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* MORE FILTERS BOTTOM SHEET (Visitor Type + Tower) */}
+      <Modal
+        visible={filtersOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFiltersOpen(false)}
+      >
+        <Pressable style={styles.sheetBackdropBottom} onPress={() => setFiltersOpen(false)}>
+          <Pressable style={styles.sheetCard} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.filterSheetHeaderRow}>
+              <Text style={styles.sheetTitle}>Filters</Text>
+              {(filterType !== "all" || filterTower !== "all") && (
+                <Pressable
+                  onPress={() => {
+                    setFilterType("all");
+                    setFilterTower("all");
+                  }}
+                >
+                  <Text style={styles.clearFiltersText}>Clear</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Text style={styles.filterLabel}>Visitor Type</Text>
+            <View style={styles.filterRow}>
+              {VISITOR_TYPE_FILTERS.map((f) => (
+                <Chip
+                  key={f}
+                  selected={filterType === f}
+                  onPress={() => {
+                    setFilterType(f);
+                    setRequestsLimit(REQUESTS_PAGE_SIZE);
+                  }}
+                  style={[styles.filterChip, filterType === f && styles.chipSelected]}
+                  textStyle={filterType === f ? styles.chipTextSelected : styles.chipText}
+                  selectedColor={ACCENT}
+                >
+                  {f}
+                </Chip>
+              ))}
+            </View>
+
+            {towers.length > 0 && (
+              <>
+                <Text style={styles.filterLabel}>Tower</Text>
+                <View style={styles.filterRow}>
+                  <Chip
+                    selected={filterTower === "all"}
+                    onPress={() => {
+                      setFilterTower("all");
+                      setRequestsLimit(REQUESTS_PAGE_SIZE);
+                    }}
+                    style={[styles.filterChip, filterTower === "all" && styles.chipSelected]}
+                    textStyle={filterTower === "all" ? styles.chipTextSelected : styles.chipText}
+                    selectedColor={ACCENT}
+                  >
+                    all
+                  </Chip>
+                  {towers.map((t) => (
+                    <Chip
+                      key={t.id}
+                      selected={filterTower === t.id}
+                      onPress={() => {
+                        setFilterTower(t.id);
+                        setRequestsLimit(REQUESTS_PAGE_SIZE);
+                      }}
+                      style={[styles.filterChip, filterTower === t.id && styles.chipSelected]}
+                      textStyle={filterTower === t.id ? styles.chipTextSelected : styles.chipText}
+                      selectedColor={ACCENT}
+                    >
+                      {t.name}
+                    </Chip>
+                  ))}
+                </View>
+              </>
+            )}
+
+            <Button
+              mode="contained"
+              buttonColor={ACCENT}
+              textColor="#fff"
+              style={{ borderRadius: 14, marginTop: 8 }}
+              onPress={() => setFiltersOpen(false)}
+            >
+              Show Results
+            </Button>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* SINGLE VISITOR FOCUSED CARD MODAL */}
       <Modal
@@ -2244,6 +2325,24 @@ export default function GuardHome() {
                         {new Date(selectedVisitor.created_at).toLocaleString()}
                       </Text>
                     </View>
+
+                    {selectedVisitor.entry_time && (
+                      <View style={styles.detailMetaRow}>
+                        <Text style={styles.detailLabel}>Entry Time</Text>
+                        <Text style={[styles.detailValue, { color: SUCCESS }]}>
+                          {formatClock(selectedVisitor.entry_time)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {selectedVisitor.exit_time && (
+                      <View style={styles.detailMetaRow}>
+                        <Text style={styles.detailLabel}>Exit Time</Text>
+                        <Text style={styles.detailValue}>
+                          {formatClock(selectedVisitor.exit_time)}
+                        </Text>
+                      </View>
+                    )}
 
                     {selectedVisitor.pre_approved &&
                       selectedVisitor.status === "approved" &&
@@ -2562,7 +2661,7 @@ export default function GuardHome() {
         </Pressable>
       </View>
 
-      {/* RESTORED ORIGINAL GUARD PROFILE MODAL */}
+      {/* GUARD PROFILE MODAL */}
       <Modal
         visible={profileOpen}
         animationType="slide"
@@ -2629,6 +2728,32 @@ export default function GuardHome() {
               <View style={styles.statTile}>
                 <Text style={styles.statTileNum}>{entriesTodayCount}</Text>
                 <Text style={styles.statTileLabel}>Entries Today</Text>
+              </View>
+            </View>
+
+            <Text style={styles.profileSectionLabel}>Settings</Text>
+            <View style={styles.settingsListCard}>
+              <View style={styles.settingsRow}>
+                <IconButton icon="bell-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>Push notifications</Text>
+                <Text style={styles.settingsRowValue}>On</Text>
+              </View>
+              <Divider style={{ backgroundColor: BORDER }} />
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() =>
+                  Alert.alert("Support", "For help, contact your society administrator.")
+                }
+              >
+                <IconButton icon="help-circle-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>Help & Support</Text>
+                <IconButton icon="chevron-right" size={16} iconColor={INK_FAINT} style={{ margin: 0 }} />
+              </Pressable>
+              <Divider style={{ backgroundColor: BORDER }} />
+              <View style={styles.settingsRow}>
+                <IconButton icon="information-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>App version</Text>
+                <Text style={styles.settingsRowValue}>1.0.0</Text>
               </View>
             </View>
 
@@ -2733,7 +2858,6 @@ const styles = StyleSheet.create({
   tileBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   viewAllLink: { fontSize: 13, fontWeight: "700", color: ACCENT },
 
-  // FORM SEGMENT SWITCHER
   formSwitcherContainer: {
     flexDirection: "row",
     backgroundColor: INPUT_BG,
@@ -2887,12 +3011,38 @@ const styles = StyleSheet.create({
   photoButton: { flex: 1, borderColor: ACCENT },
   submitButton: { borderRadius: 14, marginTop: 4 },
 
+  statusChipRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  statusChip: {
+    backgroundColor: INPUT_BG,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
   toolbarRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 10,
   },
+  moreFiltersBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 20,
+    paddingRight: 12,
+  },
+  moreFiltersBtnText: { fontSize: 12.5, fontWeight: "700", color: ACCENT },
+  filterSheetHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  clearFiltersText: { fontSize: 13, fontWeight: "700", color: DANGER },
   toolbarChip: {
     backgroundColor: CARD_BG,
     borderWidth: 1,
@@ -2940,6 +3090,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 4,
   },
+  rowTimeChipsWrap: { flexDirection: "row", gap: 6, marginTop: 4 },
+  rowTimeChip: {
+    backgroundColor: SUCCESS_BG,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  rowTimeChipOut: { backgroundColor: INPUT_BG },
+  rowTimeChipText: { fontSize: 10.5, fontWeight: "700", color: SUCCESS },
 
   modalBackdropContainer: {
     flex: 1,
@@ -3219,8 +3378,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     letterSpacing: 0.3,
     textTransform: "uppercase",
+    marginTop: 24,
   },
-  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 32 },
+  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 8 },
   statTile: {
     flex: 1,
     backgroundColor: CARD_BG,
@@ -3238,6 +3398,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
   },
+
+  settingsListCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: "hidden",
+    marginBottom: 24,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    gap: 4,
+  },
+  settingsRowText: { flex: 1, fontSize: 13.5, fontWeight: "600", color: INK },
+  settingsRowValue: { fontSize: 12.5, color: INK_MUTED, fontWeight: "600" },
 
   logoutButton: {
     flexDirection: "row",

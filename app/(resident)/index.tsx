@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -31,7 +31,7 @@ import * as Clipboard from "expo-clipboard";
 import { decode } from "base64-arraybuffer";
 import { supabase } from "../../lib/supabase";
 import { useAuthStore } from "../../store/authStore";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const INK = "#15131F";
@@ -135,6 +135,12 @@ const VALIDITY_OPTIONS = [
 
 export default function ResidentHome() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{
+    tab?: string;
+    subTab?: string;
+    focusId?: string;
+    type?: string;
+  }>();
   const [tab, setTab] = useState("home");
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
   const [flatId, setFlatId] = useState<string | null>(null);
@@ -193,6 +199,48 @@ export default function ResidentHome() {
 
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
+  const consumedFocusId = useRef<string | null>(null);
+
+  // Deep-link from a push notification: land on the right tab/sub-tab, and
+  // once the relevant list has loaded, open the specific item the
+  // notification was about (e.g. tapping a guest-arrival alert opens that
+  // visitor's details; tapping a notice push opens that notice).
+  useEffect(() => {
+    if (params.tab) setTab(params.tab);
+    if (params.subTab === "guest" || params.subTab === "express") {
+      setPreApproveMode(params.subTab);
+    }
+  }, [params.tab, params.subTab]);
+
+  useEffect(() => {
+    if (!params.focusId || consumedFocusId.current === params.focusId) return;
+
+    if (params.type === "notice") {
+      const match = notices.find((n) => n.id === params.focusId);
+      if (match) {
+        setSelectedNotice(match);
+        consumedFocusId.current = params.focusId;
+      }
+      return;
+    }
+
+    if (params.type === "ticket_update") {
+      const match = tickets.find((t) => t.id === params.focusId);
+      if (match) {
+        setSelectedTicket(match);
+        consumedFocusId.current = params.focusId;
+      }
+      return;
+    }
+
+    // Default: visitor-related pushes (guest arrived, delivery left at
+    // gate, express pass consumed, etc.) all reference a visitor_requests id.
+    const match = requests.find((r) => r.id === params.focusId);
+    if (match) {
+      setSelectedVisitor(match);
+      consumedFocusId.current = params.focusId;
+    }
+  }, [params.focusId, params.type, requests, notices, tickets]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -481,7 +529,11 @@ export default function ResidentHome() {
     }
   };
 
-  const notifySelfOfPreApproval = async (visitorName: string, code: string) => {
+  const notifySelfOfPreApproval = async (
+    visitorName: string,
+    code: string,
+    requestId?: string
+  ) => {
     try {
       const { data: selfProfile } = await supabase
         .from("profiles")
@@ -502,7 +554,14 @@ export default function ResidentHome() {
             sound: "default",
             title: "✅ Guest Pre-approved",
             body: `${visitorName} is pre-approved for entry. Passcode: ${code}`,
-            data: { screen: "visitors" },
+            // Same routing shape the guard app's pushes use, so tapping
+            // this notification lands on the Visitors tab with the new
+            // request already open instead of just the home screen.
+            data: {
+              tab: "visitors",
+              type: "preapproval_created",
+              visitorRequestId: requestId,
+            },
           }),
         });
       }
@@ -547,7 +606,7 @@ export default function ResidentHome() {
         return;
       }
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const { error: requestError } = await supabase
+      const { data: newRequest, error: requestError } = await supabase
         .from("visitor_requests")
         .insert({
           visitor_id: visitor.id,
@@ -555,13 +614,15 @@ export default function ResidentHome() {
           status: "approved",
           pre_approved: true,
           otp_code: otpCode,
-        });
+        })
+        .select()
+        .single();
       if (requestError) {
         Alert.alert("Error", requestError.message);
         return;
       }
 
-      notifySelfOfPreApproval(guestName, otpCode);
+      notifySelfOfPreApproval(guestName, otpCode, newRequest?.id);
 
       Alert.alert(
         "Pre-approved Successfully",
@@ -2848,6 +2909,32 @@ export default function ResidentHome() {
               </View>
             </View>
 
+            <Text style={styles.profileSectionLabel}>Settings</Text>
+            <View style={styles.settingsListCard}>
+              <View style={styles.settingsRow}>
+                <IconButton icon="bell-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>Push notifications</Text>
+                <Text style={styles.settingsRowValue}>On</Text>
+              </View>
+              <Divider style={{ backgroundColor: BORDER }} />
+              <Pressable
+                style={styles.settingsRow}
+                onPress={() =>
+                  Alert.alert("Support", "For help, contact your society administrator.")
+                }
+              >
+                <IconButton icon="help-circle-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>Help & Support</Text>
+                <IconButton icon="chevron-right" size={16} iconColor={INK_FAINT} style={{ margin: 0 }} />
+              </Pressable>
+              <Divider style={{ backgroundColor: BORDER }} />
+              <View style={styles.settingsRow}>
+                <IconButton icon="information-outline" size={18} iconColor={INK_MUTED} style={{ margin: 0 }} />
+                <Text style={styles.settingsRowText}>App version</Text>
+                <Text style={styles.settingsRowValue}>1.0.0</Text>
+              </View>
+            </View>
+
             <Pressable
               style={styles.logoutButton}
               onPress={() => {
@@ -3529,8 +3616,9 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     letterSpacing: 0.3,
     textTransform: "uppercase",
+    marginTop: 24,
   },
-  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 32 },
+  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 8 },
   statTile: {
     flex: 1,
     backgroundColor: CARD_BG,
@@ -3548,6 +3636,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "600",
   },
+
+  settingsListCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: "hidden",
+    marginBottom: 24,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    gap: 4,
+  },
+  settingsRowText: { flex: 1, fontSize: 13.5, fontWeight: "600", color: INK },
+  settingsRowValue: { fontSize: 12.5, color: INK_MUTED, fontWeight: "600" },
 
   logoutButton: {
     flexDirection: "row",
