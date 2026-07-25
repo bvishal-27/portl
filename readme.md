@@ -14,6 +14,30 @@ Portl replaces all of that with one mobile experience: the conversations that us
 
 ---
 
+## Screenshots
+
+| Authentication | Resident Home | Guest Pre-Approval |
+|---|---|---|
+| ![Auth](./screenshots/authloginsignupresetpaswd.png) | ![Resident Home](./screenshots/residenthome.png) | ![Pre-Approve](./screenshots/preapprove.png) |
+
+| Express Pass | Dues & PDF Invoice | Visitor History |
+|---|---|---|
+| ![Express Pass](./screenshots/expresspass.png) | ![Invoice](./screenshots/bill.png) | ![Visitor History](./screenshots/visitorhistory.png) |
+
+| Helpdesk Tickets | Guard Home | Register Visitor |
+|---|---|---|
+| ![Tickets](./screenshots/tickets.png) | ![Guard Home](./screenshots/guardhomescreen.png) | ![Register Visitor](./screenshots/registervisitor.png) |
+
+| Quick Entry (Frequent Staff) | SOS Alert | Admin Home |
+|---|---|---|
+| ![Frequent Staff](./screenshots/frequentstaff.png) | ![SOS](./screenshots/sos.png) | ![Admin Home](./screenshots/adminhomescreen.png) |
+
+| Admin Society Management |
+|---|
+| ![Resident Dashboard](./screenshots/adminresidentdashboard.png) |
+
+---
+
 ## Tech Stack
 
 - **Framework:** Expo (SDK 54) + React Native + TypeScript
