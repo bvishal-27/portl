@@ -70,7 +70,6 @@ type VisitorRequest = {
   } | null;
   flats: { flat_number: string; tower_id: string } | null;
 };
-type Tower = { id: string; name: string };
 type Flat = { id: string; tower_id: string; flat_number: string };
 type MyGuardProfile = { full_name: string; phone: string | null };
 
@@ -271,14 +270,10 @@ export default function GuardHome() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const actionLoadingRef = useRef<string | null>(null);
   const [requests, setRequests] = useState<VisitorRequest[]>([]);
-  const [towers, setTowers] = useState<Tower[]>([]);
   const [flats, setFlats] = useState<Flat[]>([]);
-  const [filterTower, setFilterTower] = useState<string>("all");
-  const [filterType, setFilterType] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchFlat, setSearchFlat] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [requestsLimit, setRequestsLimit] = useState(REQUESTS_PAGE_SIZE);
   const userId = useAuthStore((s) => s.userId);
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -481,11 +476,6 @@ export default function GuardHome() {
     }
   };
 
-  const fetchTowers = async () => {
-    const { data } = await supabase.from("towers").select("*").order("name");
-    if (data) setTowers(data);
-  };
-
   const fetchFlats = async () => {
     const { data } = await supabase
       .from("flats")
@@ -528,7 +518,6 @@ export default function GuardHome() {
 
   useEffect(() => {
     fetchRequests();
-    fetchTowers();
     fetchFlats();
     fetchMyProfile();
     fetchResidents();
@@ -833,6 +822,7 @@ export default function GuardHome() {
         setLoading(false);
         return;
       }
+await sendVisitorPush(flat.id, name, finalVisitorType, newRequest.id);
 
       if (saveAsFrequent) {
         const { error: freqError } = await supabase.from("frequent_visitors").insert({
@@ -1043,18 +1033,9 @@ export default function GuardHome() {
     }
   };
 
-  const activeFilterCount =
-    (filterStatus !== "all" ? 1 : 0) +
-    (filterType !== "all" ? 1 : 0) +
-    (filterTower !== "all" ? 1 : 0);
-
   let filtered = requests;
   if (filterStatus !== "all")
     filtered = filtered.filter((r) => r.status === filterStatus);
-  if (filterType !== "all")
-    filtered = filtered.filter((r) => r.visitors?.visitor_type === filterType);
-  if (filterTower !== "all")
-    filtered = filtered.filter((r) => r.flats?.tower_id === filterTower);
   if (searchFlat.trim())
     filtered = filtered.filter((r) =>
       r.flats?.flat_number
@@ -1125,8 +1106,6 @@ export default function GuardHome() {
     setProfileOpen(false);
     setRequestsLimit(REQUESTS_PAGE_SIZE);
   };
-
-  const VISITOR_TYPE_FILTERS = ["all", "guest", "delivery", "cab", "service", "other"];
 
   return (
     <View style={styles.screen}>
@@ -1581,7 +1560,7 @@ export default function GuardHome() {
               </View>
               {!photoUri && (
                 <Text style={styles.photoRequiredHint}>
-                  A photo is required before the request can be sent
+                  Photo is required 
                 </Text>
               )}
 
@@ -2011,10 +1990,8 @@ export default function GuardHome() {
                 />
               </View>
 
-              {/* Simplified filter bar: status is the common, everyday filter
-                  and always visible as a single row of chips; type/tower
-                  (used far less often) live behind one "More filters" sheet
-                  instead of three separate rows stacked in the page. */}
+              {/* Status is the everyday filter people actually reach for,
+                  so it stays as a single always-visible row of chips. */}
               <View style={styles.statusChipRow}>
                 {["all", "pending", "approved", "denied"].map((f) => (
                   <Chip
@@ -2034,13 +2011,7 @@ export default function GuardHome() {
                 ))}
               </View>
 
-              <View style={styles.toolbarRow}>
-                <Pressable style={styles.moreFiltersBtn} onPress={() => setFiltersOpen(true)}>
-                  <IconButton icon="tune-variant" size={16} iconColor={ACCENT} style={{ margin: 0 }} />
-                  <Text style={styles.moreFiltersBtnText}>
-                    More filters{activeFilterCount > (filterStatus !== "all" ? 1 : 0) ? ` (${filterType !== "all" ? 1 : 0 + (filterTower !== "all" ? 1 : 0)})` : ""}
-                  </Text>
-                </Pressable>
+              <View style={[styles.toolbarRow, { justifyContent: "flex-end" }]}>
                 <Button
                   compact
                   mode="text"
@@ -2103,97 +2074,6 @@ export default function GuardHome() {
           <View style={{ height: 90 }} />
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* MORE FILTERS BOTTOM SHEET (Visitor Type + Tower) */}
-      <Modal
-        visible={filtersOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFiltersOpen(false)}
-      >
-        <Pressable style={styles.sheetBackdropBottom} onPress={() => setFiltersOpen(false)}>
-          <Pressable style={styles.sheetCard} onPress={() => {}}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.filterSheetHeaderRow}>
-              <Text style={styles.sheetTitle}>Filters</Text>
-              {(filterType !== "all" || filterTower !== "all") && (
-                <Pressable
-                  onPress={() => {
-                    setFilterType("all");
-                    setFilterTower("all");
-                  }}
-                >
-                  <Text style={styles.clearFiltersText}>Clear</Text>
-                </Pressable>
-              )}
-            </View>
-
-            <Text style={styles.filterLabel}>Visitor Type</Text>
-            <View style={styles.filterRow}>
-              {VISITOR_TYPE_FILTERS.map((f) => (
-                <Chip
-                  key={f}
-                  selected={filterType === f}
-                  onPress={() => {
-                    setFilterType(f);
-                    setRequestsLimit(REQUESTS_PAGE_SIZE);
-                  }}
-                  style={[styles.filterChip, filterType === f && styles.chipSelected]}
-                  textStyle={filterType === f ? styles.chipTextSelected : styles.chipText}
-                  selectedColor={ACCENT}
-                >
-                  {f}
-                </Chip>
-              ))}
-            </View>
-
-            {towers.length > 0 && (
-              <>
-                <Text style={styles.filterLabel}>Tower</Text>
-                <View style={styles.filterRow}>
-                  <Chip
-                    selected={filterTower === "all"}
-                    onPress={() => {
-                      setFilterTower("all");
-                      setRequestsLimit(REQUESTS_PAGE_SIZE);
-                    }}
-                    style={[styles.filterChip, filterTower === "all" && styles.chipSelected]}
-                    textStyle={filterTower === "all" ? styles.chipTextSelected : styles.chipText}
-                    selectedColor={ACCENT}
-                  >
-                    all
-                  </Chip>
-                  {towers.map((t) => (
-                    <Chip
-                      key={t.id}
-                      selected={filterTower === t.id}
-                      onPress={() => {
-                        setFilterTower(t.id);
-                        setRequestsLimit(REQUESTS_PAGE_SIZE);
-                      }}
-                      style={[styles.filterChip, filterTower === t.id && styles.chipSelected]}
-                      textStyle={filterTower === t.id ? styles.chipTextSelected : styles.chipText}
-                      selectedColor={ACCENT}
-                    >
-                      {t.name}
-                    </Chip>
-                  ))}
-                </View>
-              </>
-            )}
-
-            <Button
-              mode="contained"
-              buttonColor={ACCENT}
-              textColor="#fff"
-              style={{ borderRadius: 14, marginTop: 8 }}
-              onPress={() => setFiltersOpen(false)}
-            >
-              Show Results
-            </Button>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {/* SINGLE VISITOR FOCUSED CARD MODAL */}
       <Modal
@@ -3015,6 +2895,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     marginBottom: 10,
+    flexWrap: "wrap",
   },
   statusChip: {
     backgroundColor: INPUT_BG,
@@ -3026,35 +2907,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 10,
-  },
-  moreFiltersBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: CARD_BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 20,
-    paddingRight: 12,
-  },
-  moreFiltersBtnText: { fontSize: 12.5, fontWeight: "700", color: ACCENT },
-  filterSheetHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  clearFiltersText: { fontSize: 13, fontWeight: "700", color: DANGER },
-  toolbarChip: {
-    backgroundColor: CARD_BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  filterCard: {
-    marginBottom: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: CARD_BG,
-    padding: 16,
   },
 
   compactRow: {
@@ -3208,25 +3060,6 @@ const styles = StyleSheet.create({
   meta: { color: INK_MUTED, marginTop: 3, fontSize: 13 },
   metaFaint: { color: INK_FAINT, marginTop: 2, fontSize: 12 },
 
-  filterLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: INK_MUTED,
-    marginBottom: 6,
-    marginTop: 6,
-  },
-  filterRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 4,
-    flexWrap: "wrap",
-  },
-  filterChip: {
-    marginBottom: 4,
-    backgroundColor: INPUT_BG,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
   chipSelected: { backgroundColor: ACCENT_SOFT, borderColor: ACCENT },
   chipText: { color: INK_MUTED },
   chipTextSelected: { color: INK, fontWeight: "600" },
