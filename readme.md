@@ -24,17 +24,14 @@ Portl replaces all of that with one mobile experience: the conversations that us
 |---|---|---|
 | ![Express Pass](./screenshots/expresspass.png) | ![Invoice](./screenshots/bill.png) | ![Visitor History](./screenshots/visitorhistory.png) |
 
-| Helpdesk Tickets | Guard Home | Register Visitor |
-|---|---|---|
-| ![Tickets](./screenshots/tickets.png) | ![Guard Home](./screenshots/guardhomescreen.png) | ![Register Visitor](./screenshots/registervisitor.png) |
+|  Guard Home | Register Visitor |
+|---|---|
+| ![Guard Home](./screenshots/guardhomescreen.png) | ![Register Visitor](./screenshots/registervisitor.png) |
 
 | Quick Entry (Frequent Staff) | SOS Alert | Admin Home |
 |---|---|---|
 | ![Frequent Staff](./screenshots/frequentstaff.png) | ![SOS](./screenshots/sos.png) | ![Admin Home](./screenshots/adminhomescreen.png) |
 
-| Admin Society Management |
-|---|
-| ![Resident Dashboard](./screenshots/adminresidentdashboard.png) |
 
 ---
 
