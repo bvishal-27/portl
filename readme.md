@@ -39,8 +39,6 @@ Install directly on an Android device for the fastest way to see everything work
 | Quick Entry (Frequent Staff) | SOS Alert | Admin Home |
 |---|---|---|
 | ![Frequent Staff](./screenshots/frequentstaff.png) | ![SOS](./screenshots/sos.png) | ![Admin Home](./screenshots/adminhomescreen.png) |
-
-
 ---
 
 ## Tech Stack
