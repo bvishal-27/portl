@@ -14,6 +14,14 @@ Portl replaces all of that with one mobile experience: the conversations that us
 
 ---
 
+## Download
+
+📱 [Download APK (v1.0.0)](https://github.com/bvishal-27/portl/releases/download/v1.0.0/portl.apk) — 101 MB
+
+Install directly on an Android device for the fastest way to see everything working — no setup required.
+
+---
+
 ## Screenshots
 
 | Authentication | Resident Home | Guest Pre-Approval |
@@ -32,9 +40,6 @@ Portl replaces all of that with one mobile experience: the conversations that us
 |---|---|---|
 | ![Frequent Staff](./screenshots/frequentstaff.png) | ![SOS](./screenshots/sos.png) | ![Admin Home](./screenshots/adminhomescreen.png) |
 
-| Admin Society Management |
-|---|
-| ![Resident Dashboard](./screenshots/adminresidentdashboard.png) |
 
 ---
 
