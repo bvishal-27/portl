@@ -14,6 +14,14 @@ Portl replaces all of that with one mobile experience: the conversations that us
 
 ---
 
+## Download
+
+📱 [Download APK (v1.0.0)](https://github.com/bvishal-27/portl/releases/download/v1.0.0/portl.apk) — 101 MB
+
+Install directly on an Android device for the fastest way to see everything working — no setup required.
+
+---
+
 ## Screenshots
 
 | Authentication | Resident Home | Guest Pre-Approval |
@@ -24,14 +32,17 @@ Portl replaces all of that with one mobile experience: the conversations that us
 |---|---|---|
 | ![Express Pass](./screenshots/expresspass.png) | ![Invoice](./screenshots/bill.png) | ![Visitor History](./screenshots/visitorhistory.png) |
 
-|  Guard Home | Register Visitor |
-|---|---|
-| ![Guard Home](./screenshots/guardhomescreen.png) | ![Register Visitor](./screenshots/registervisitor.png) |
+| Helpdesk Tickets | Guard Home | Register Visitor |
+|---|---|---|
+| ![Tickets](./screenshots/tickets.png) | ![Guard Home](./screenshots/guardhomescreen.png) | ![Register Visitor](./screenshots/registervisitor.png) |
 
 | Quick Entry (Frequent Staff) | SOS Alert | Admin Home |
 |---|---|---|
 | ![Frequent Staff](./screenshots/frequentstaff.png) | ![SOS](./screenshots/sos.png) | ![Admin Home](./screenshots/adminhomescreen.png) |
 
+| Admin Society Management |
+|---|
+| ![Resident Dashboard](./screenshots/adminresidentdashboard.png) |
 
 ---
 
@@ -194,3 +205,12 @@ A Tower and Flat are pre-seeded so the self-registration flow can also be tested
    ```
    Or install the provided APK directly on an Android device for the fastest way to see everything working.
 
+---
+
+## Submission Details
+
+- **Project Name:** Portl
+- **Track:** Society Management App
+- **Description:** A mobile-first society management app (Expo + React Native + Supabase) that replaces gate calls and WhatsApp groups with real-time visitor approvals (including OTP guest passes and Express Passes for deliveries), guard operations, community notices/polls, helpdesk, amenity booking, maintenance dues with PDF invoicing, and an emergency SOS system — with distinct, permission-controlled dashboards for Residents, Security Guards, and Society Admins.
+- **Tech Stack:** Expo, React Native, TypeScript, Supabase (Postgres, Auth, Realtime, Storage, Edge Functions), Expo Notifications, Expo Print
+- **GitHub Repository:** https://github.com/bvishal-27/portl
