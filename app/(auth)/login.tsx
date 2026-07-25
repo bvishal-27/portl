@@ -10,12 +10,14 @@ import {
   ScrollView,
   Animated,
   Pressable,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TextInput, Text } from 'react-native-paper';
+import { TextInput, Text, Button, IconButton } from 'react-native-paper';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
 
 const INK = '#15131F';
 const INK_MUTED = '#6B6878';
@@ -35,11 +37,19 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Forgot Password States
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+
   const setSession = useAuthStore((s) => s.setSession);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
-  const pressIn = () => Animated.spring(buttonScale, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start();
-  const pressOut = () => Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
+  const pressIn = () =>
+    Animated.spring(buttonScale, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start();
+  const pressOut = () =>
+    Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
 
   const handleLogin = async () => {
     setLoading(true);
@@ -63,7 +73,10 @@ export default function Login() {
     }
 
     if (!profile.approved) {
-      Alert.alert('Pending Approval', 'Your account is still awaiting admin approval. Please check back later.');
+      Alert.alert(
+        'Pending Approval',
+        'Your account is still awaiting admin approval. Please check back later.'
+      );
       await supabase.auth.signOut();
       setLoading(false);
       return;
@@ -81,7 +94,10 @@ export default function Login() {
       if (finalStatus === 'granted') {
         try {
           const tokenData = await Notifications.getExpoPushTokenAsync();
-          await supabase.from('profiles').update({ push_token: tokenData.data }).eq('id', data.user.id);
+          await supabase
+            .from('profiles')
+            .update({ push_token: tokenData.data })
+            .eq('id', data.user.id);
         } catch (err) {
           console.log('Push token error:', err);
         }
@@ -92,7 +108,43 @@ export default function Login() {
     router.replace('/');
   };
 
-  const inputTheme = { colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT } };
+  const handleForgotPassword = async () => {
+    if (!resetEmail.trim()) {
+      Alert.alert('Missing Email', 'Please enter your email address to receive a reset link.');
+      return;
+    }
+    setResetLoading(true);
+
+    const redirectTo = Linking.createURL('/(auth)/reset-password');
+
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+      redirectTo,
+    });
+
+    setResetLoading(false);
+
+    if (error) {
+      Alert.alert('Reset Failed', error.message);
+    } else {
+      Alert.alert(
+        'Check Your Email 📩',
+        `A password reset link has been sent to ${resetEmail}. Click the link in the email to set a new password.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setForgotModalVisible(false);
+              setResetEmail('');
+            },
+          },
+        ]
+      );
+    }
+  };
+
+  const inputTheme = {
+    colors: { onSurfaceVariant: INK_MUTED, background: 'transparent', primary: ACCENT },
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
@@ -136,7 +188,12 @@ export default function Login() {
                 theme={inputTheme}
                 cursorColor={ACCENT}
                 selectionColor={ACCENT_SOFT}
-                left={<TextInput.Icon icon="email-outline" color={emailFocused ? ACCENT : INK_FAINT} />}
+                left={
+                  <TextInput.Icon
+                    icon="email-outline"
+                    color={emailFocused ? ACCENT : INK_FAINT}
+                  />
+                }
               />
             </View>
 
@@ -156,7 +213,12 @@ export default function Login() {
                 theme={inputTheme}
                 cursorColor={ACCENT}
                 selectionColor={ACCENT_SOFT}
-                left={<TextInput.Icon icon="lock-outline" color={passwordFocused ? ACCENT : INK_FAINT} />}
+                left={
+                  <TextInput.Icon
+                    icon="lock-outline"
+                    color={passwordFocused ? ACCENT : INK_FAINT}
+                  />
+                }
                 right={
                   <TextInput.Icon
                     icon={showPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -167,6 +229,17 @@ export default function Login() {
               />
             </View>
 
+            {/* Forgot Password Link */}
+            <Pressable
+              onPress={() => {
+                setResetEmail(email);
+                setForgotModalVisible(true);
+              }}
+              style={styles.forgotPassLinkWrap}
+            >
+              <Text style={styles.forgotPassLinkLabel}>Forgot Password?</Text>
+            </Pressable>
+
             <Pressable
               onPress={handleLogin}
               onPressIn={pressIn}
@@ -174,7 +247,9 @@ export default function Login() {
               disabled={loading}
               style={{ marginTop: 8 }}
             >
-              <Animated.View style={[styles.loginButton, { transform: [{ scale: buttonScale }] }]}>
+              <Animated.View
+                style={[styles.loginButton, { transform: [{ scale: buttonScale }] }]}
+              >
                 {loading ? (
                   <Text style={styles.loginButtonLabel}>Signing in…</Text>
                 ) : (
@@ -183,7 +258,10 @@ export default function Login() {
               </Animated.View>
             </Pressable>
 
-            <Pressable onPress={() => router.push('/(auth)/signup')} style={styles.signupLinkWrap}>
+            <Pressable
+              onPress={() => router.push('/(auth)/signup')}
+              style={styles.signupLinkWrap}
+            >
               <Text style={styles.signupLinkLabel}>New here? Create an account →</Text>
             </Pressable>
           </View>
@@ -194,6 +272,68 @@ export default function Login() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* FORGOT PASSWORD MODAL */}
+      <Modal
+        visible={forgotModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setForgotModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setForgotModalVisible(false)}
+        >
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <IconButton
+                icon="close"
+                size={20}
+                iconColor={INK}
+                onPress={() => setForgotModalVisible(false)}
+                style={{ margin: 0 }}
+              />
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              Enter your registered email address and we'll send you a password reset link.
+            </Text>
+
+            <View style={[styles.inputWrap, { marginTop: 14 }]}>
+              <TextInput
+                mode="flat"
+                label="Email address"
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.input}
+                underlineColor="transparent"
+                activeUnderlineColor="transparent"
+                textColor={INK}
+                theme={inputTheme}
+                cursorColor={ACCENT}
+                selectionColor={ACCENT_SOFT}
+                left={<TextInput.Icon icon="email-outline" color={ACCENT} />}
+              />
+            </View>
+
+            <Button
+              mode="contained"
+              buttonColor={ACCENT}
+              textColor="#fff"
+              loading={resetLoading}
+              disabled={resetLoading}
+              onPress={handleForgotPassword}
+              style={{ borderRadius: 12, marginTop: 8 }}
+              contentStyle={{ paddingVertical: 4 }}
+            >
+              Send Reset Link
+            </Button>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -201,13 +341,22 @@ export default function Login() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: PAGE_BG },
 
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 48, paddingBottom: 48 },
+  scroll: {
+    flexGrow: 1,
+    justify: 'center',
+    padding: 24,
+    paddingTop: 48,
+    paddingBottom: 48,
+  },
 
   logoMark: {
     alignSelf: 'center',
-    width: 60, height: 60, borderRadius: 18,
+    width: 60,
+    height: 60,
+    borderRadius: 18,
     backgroundColor: ACCENT,
-    justifyContent: 'center', alignItems: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
   logoLetter: { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: 1 },
@@ -244,6 +393,9 @@ const styles = StyleSheet.create({
   },
   input: { backgroundColor: 'transparent' },
 
+  forgotPassLinkWrap: { alignSelf: 'flex-end', marginBottom: 12, marginTop: -4 },
+  forgotPassLinkLabel: { color: ACCENT, fontSize: 13, fontWeight: '600' },
+
   loginButton: {
     backgroundColor: ACCENT,
     borderRadius: 14,
@@ -256,7 +408,36 @@ const styles = StyleSheet.create({
   signupLinkWrap: { alignItems: 'center', marginTop: 18, paddingVertical: 4 },
   signupLinkLabel: { color: LINK, fontSize: 13, fontWeight: '600' },
 
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 26, gap: 6 },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 26,
+    gap: 6,
+  },
   footerDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#4ADE80' },
   footerNote: { color: INK_FAINT, fontSize: 12 },
+
+  // Modal Styles
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(21,19,31,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
+    width: '100%',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: INK },
+  modalSubtitle: { fontSize: 13, color: INK_MUTED, marginTop: 4 },
 });
